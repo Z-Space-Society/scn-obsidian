@@ -1,0 +1,10 @@
+{
+	"id": "scn-sync-probe",
+	"name": "SCN Sync Probe",
+	"version": "0.0.1",
+	"minAppVersion": "1.11.4",
+	"description": "Throwaway tests of what a plugin can do on iOS, ahead of SCN Sync.",
+	"author": "Z-Space Society",
+	"authorUrl": "https://github.com/Z-Space-Society",
+	"isDesktopOnly": false
+}

@@ -9,9 +9,10 @@ and iPhone, signed in through
 
 ## Status: probe only
 
-The plugin is not written yet. Its spec is next.
+The plugin is not written yet. Its spec is drafted at
+[`docs/specs/0001-spec-scn-sync/`](docs/specs/0001-spec-scn-sync/0001-spec-scn-sync.md).
 
-What is here is [`probe/`](probe/README.md), a throwaway plugin that tests on
+Also here is [`probe/`](probe/README.md), a throwaway plugin that tests on
 a real iPhone the things the design depends on and that could not be settled
 from Obsidian's documentation: the `obsidian://` sign-in return, storage
 durability, sockets across app suspension, and Automerge's WebAssembly load

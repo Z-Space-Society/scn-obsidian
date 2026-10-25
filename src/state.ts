@@ -15,6 +15,9 @@ export interface Settings {
 	// The relay vault this Obsidian vault is connected to, or blank.
 	vaultUrl: string;
 	vaultName: string;
+	// Names this vault's IndexedDB databases. IndexedDB is shared by every
+	// vault Obsidian opens, so the vault's name alone would not do.
+	storeId: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -25,6 +28,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	did: "",
 	vaultUrl: "",
 	vaultName: "",
+	storeId: "",
 };
 
 // V4. A connected vault belongs to the member who connected it. Another

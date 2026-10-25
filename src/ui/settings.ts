@@ -57,6 +57,23 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 				);
 		}
 
+		if (settings.vaultUrl) {
+			new Setting(containerEl).setName("Status").setHeading();
+			new Setting(containerEl)
+				.setName(plugin.statusText())
+				.setDesc("Changes made on SCN, on other devices and by Claude, arrive here. Edits made here are not sent yet.");
+			const { sync } = plugin;
+			for (const [path, reason] of sync?.notSynced ?? []) {
+				new Setting(containerEl).setName(path).setDesc(reason);
+			}
+			for (const path of sync?.unsent() ?? []) {
+				new Setting(containerEl).setName(path).setDesc("Only here. SCN Sync does not upload new notes yet.");
+			}
+			for (const line of sync?.skipped ?? []) {
+				new Setting(containerEl).setName("Left out").setDesc(line);
+			}
+		}
+
 		new Setting(containerEl).setName("Advanced").setHeading();
 		new Setting(containerEl)
 			.setName("Issuer")

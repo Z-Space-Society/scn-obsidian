@@ -287,6 +287,11 @@ export class TokenKeeper {
 		return !!this.options.secrets.get();
 	}
 
+	// When the access token in memory expires, or null when there is none.
+	expiresAt(): number | null {
+		return this.access?.expiresAt ?? null;
+	}
+
 	adopt(tokens: TokenSet) {
 		this.generation++;
 		this.inflight = null;

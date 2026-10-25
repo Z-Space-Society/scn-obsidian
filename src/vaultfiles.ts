@@ -1,6 +1,10 @@
 // Files through Obsidian's Vault API, which does not expose hidden folders.
+// A note open in an editor is read and written through the editor (O5): its
+// buffer holds keystrokes not yet saved, and a write to the file under it
+// would lose the cursor and can lose those keystrokes.
 
-import type { App } from "obsidian";
+import { MarkdownView, type App, type Editor } from "obsidian";
+import { splicesBetween } from "./diff.ts";
 import type { Files } from "./notes.ts";
 
 export class VaultFiles implements Files {
@@ -23,25 +27,56 @@ export class VaultFiles implements Files {
 		);
 	}
 
+	// The editor of the first open view of this note, if any.
+	editorFor(path: string): Editor | null {
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			const view = leaf.view;
+			if (view instanceof MarkdownView && view.file?.path === path) return view.editor;
+		}
+		return null;
+	}
+
 	async read(path: string): Promise<string | null> {
+		const editor = this.editorFor(path);
+		if (editor) return editor.getValue();
 		const file = this.app.vault.getFileByPath(path);
 		return file ? this.app.vault.read(file) : null;
 	}
 
-	async write(path: string, text: string) {
+	async write(path: string, text: string, expected?: string | null): Promise<boolean> {
 		if (!this.synced(path)) throw new Error(`${path} is not a path SCN Sync writes`);
 		const { vault } = this.app;
+
+		const editor = this.editorFor(path);
+		if (editor) {
+			const current = editor.getValue();
+			if (expected !== undefined && current !== expected) return false;
+			// Smallest changes, last first, so the cursor and selection map
+			// through each one. Obsidian saves the buffer to disk afterwards.
+			for (const { index, remove, insert } of splicesBetween(current, text)) {
+				editor.replaceRange(insert, editor.offsetToPos(index), editor.offsetToPos(index + remove));
+			}
+			return true;
+		}
+
 		const file = vault.getFileByPath(path);
 		if (file) {
-			await vault.process(file, () => text);
-			return;
+			let wrote = false;
+			await vault.process(file, (data) => {
+				if (expected !== undefined && data !== expected) return data;
+				wrote = true;
+				return text;
+			});
+			return wrote;
 		}
+		if (expected !== undefined && expected !== null) return false;
 		const segments = path.split("/").slice(0, -1);
 		for (let i = 1; i <= segments.length; i++) {
 			const folder = segments.slice(0, i).join("/");
 			if (!vault.getFolderByPath(folder)) await vault.createFolder(folder);
 		}
 		await vault.create(path, text);
+		return true;
 	}
 
 	list(): string[] {

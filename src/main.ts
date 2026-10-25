@@ -2,7 +2,7 @@ import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64"
 import { initializeBase64Wasm } from "@automerge/automerge/slim";
 import { Repo } from "@automerge/automerge-repo/slim";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
-import { Notice, Plugin, requestUrl } from "obsidian";
+import { Notice, Plugin, TFile, requestUrl } from "obsidian";
 import {
 	PROTOCOL_ACTION,
 	SignInError,
@@ -27,6 +27,7 @@ import { ConnectModal, SetupModal, VaultPickModal } from "./ui/setup.ts";
 import { VaultFiles } from "./vaultfiles.ts";
 
 const PENDING_KEY = "scn-sync-pending-sign-in";
+const TYPING_PAUSE_MS = 500;
 const SECRET_ID = "scn-sync-refresh-token";
 
 // All HTTP goes through requestUrl: plain fetch is blocked by CORS in the iOS
@@ -70,10 +71,14 @@ export default class ScnSync extends Plugin {
 	private noteStore: IndexedDBNoteStore | null = null;
 	private starting: Promise<void> | null = null;
 	private wasm: Promise<void> | null = null;
+	private files!: VaultFiles;
+	// Typing in an open note, per path, waiting to be sent.
+	private typing = new Map<string, number>();
 	private statusEl!: HTMLElement;
 
 	async onload() {
 		this.settings = { ...DEFAULT_SETTINGS, ...((await this.loadData()) ?? {}) };
+		this.files = new VaultFiles(this.app);
 		this.keeper = new TokenKeeper({
 			http,
 			secrets: {
@@ -135,11 +140,33 @@ export default class ScnSync extends Plugin {
 			for (const name of ["create", "delete", "rename"] as const) {
 				this.registerEvent(this.app.vault.on(name as "create", () => this.showStatus()));
 			}
+			this.registerEvent(
+				this.app.vault.on("modify", (file) => {
+					if (file instanceof TFile && this.files.synced(file.path)) this.sync?.fileChanged(file.path);
+				}),
+			);
+			// O5. The buffer of an open note is sent as it is typed, half a
+			// second after the last keystroke, without waiting for a save.
+			this.registerEvent(
+				this.app.workspace.on("editor-change", (_editor, info) => {
+					const path = info.file?.path;
+					if (!path || !this.files.synced(path)) return;
+					window.clearTimeout(this.typing.get(path));
+					this.typing.set(
+						path,
+						window.setTimeout(() => {
+							this.typing.delete(path);
+							this.sync?.fileChanged(path);
+						}, TYPING_PAUSE_MS),
+					);
+				}),
+			);
 			void this.startSync();
 		});
 	}
 
 	onunload() {
+		for (const timer of this.typing.values()) window.clearTimeout(timer);
 		void this.stopSync();
 	}
 
@@ -279,7 +306,7 @@ export default class ScnSync extends Plugin {
 		const sync = new Sync({
 			repo,
 			rootUrl: this.settings.vaultUrl,
-			files: new VaultFiles(this.app),
+			files: this.files,
 			store: noteStore,
 			confirm: (plan) => new ConnectModal(this.app, plan, this.settings.vaultName).ask(),
 			onStatus: () => {

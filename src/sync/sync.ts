@@ -1,8 +1,10 @@
-// The relay to the files: connect (V3) and inbound (O4, without the editor
-// path). Nothing is sent from the files to the relay yet, so a file edited
-// here is left alone and reported, never overwritten.
+// Between the relay and the files: connect (V3), inbound (O4) and outbound
+// (O3) for notes the relay already has. New notes, renames, moves and
+// deletes are structure changes, and are not sent yet.
 
-import type { AutomergeUrl, DocHandle, Repo } from "@automerge/automerge-repo/slim";
+import * as A from "@automerge/automerge/slim";
+import type { AutomergeUrl, DocHandle, Repo, UrlHeads } from "@automerge/automerge-repo/slim";
+import { splicesBetween } from "../diff.ts";
 import { type Files, type NoteState, type NoteStore, sha256 } from "../notes.ts";
 import { noteText } from "../schema.ts";
 import { type Tree, walk } from "../tree.ts";
@@ -60,6 +62,8 @@ export class Sync {
 	private queues = new Map<string, Promise<void>>();
 	private pending = new Set<string>();
 	private walking: Promise<void> | null = null;
+	// Whether the first walk since start has looked at every note's file.
+	private swept = false;
 	private walkAgain = false;
 	private busy = 0;
 	private stopped = false;
@@ -173,7 +177,13 @@ export class Sync {
 			await Promise.all([...tree.notes.values()].map((url) => this.open(url)));
 			if (this.stopped || this.declined) return;
 			if (!this.connected) await this.connect(tree);
-			if (this.connected) this.scheduleChanged(tree);
+			if (!this.connected) return;
+			// The first time, every note: a file edited while Obsidian was
+			// closed shows only in its hash. After that, only documents that
+			// moved on; file changes arrive as events.
+			if (this.swept) this.scheduleChanged(tree);
+			else for (const path of tree.notes.keys()) this.schedule(path);
+			this.swept = true;
 		} finally {
 			this.busy--;
 		}
@@ -224,6 +234,13 @@ export class Sync {
 		this.connected = true;
 	}
 
+	// A file was saved, or an open note typed in. Only notes the relay
+	// already has are sent: a new note is a structure change.
+	fileChanged(path: string) {
+		if (this.stopped || !this.connected || !this.states.has(path)) return;
+		this.schedule(path);
+	}
+
 	// All work for one note runs through one queue, and a burst of changes
 	// that arrives while a write waits produces one write.
 	private schedule(path: string) {
@@ -234,7 +251,7 @@ export class Sync {
 		const next = previous
 			.then(() => {
 				this.pending.delete(path);
-				return this.inbound(path);
+				return this.syncNote(path);
 			})
 			.catch((e) => console.error(`SCN Sync: ${path} failed`, e))
 			.finally(() => {
@@ -245,10 +262,13 @@ export class Sync {
 		this.queues.set(path, next);
 	}
 
-	// O4. The relay's text is written only over a file that still holds what
-	// the plugin last wrote or read.
-	private async inbound(path: string) {
+	// The one task for a note, whatever caused it. The file is compared with
+	// what was last synced (syncedHash) and the document with where it was
+	// (syncedHeads): an edited file goes out, merging whatever came in, and an
+	// unedited one takes the document's text.
+	private async syncNote(path: string) {
 		if (!this.connected || this.stopped || !this.tree) return;
+		const { files } = this.options;
 		const url = this.tree.notes.get(path);
 		// An entry that went away. Deletes and moves are not followed yet.
 		if (url === undefined) return;
@@ -259,30 +279,70 @@ export class Sync {
 			this.notSynced.set(path, "Not a note SCN Sync can read.");
 			return;
 		}
-		const heads = handle.heads();
-		const state = this.states.get(path);
 		const elsewhere = [...this.states.values()].find((s) => s.url === url && s.path !== path);
 		if (elsewhere) {
 			this.notSynced.set(path, `Moved from ${elsewhere.path} on the relay. Moves are not followed yet.`);
 			return;
 		}
-		const local = await this.options.files.read(path);
-		if (local !== null && local !== text) {
-			if (!state) {
+		const state = this.states.get(path);
+		const local = await files.read(path);
+
+		if (!state) {
+			if (local !== null && local !== text) {
 				this.notSynced.set(path, "A different note with this name is already here.");
 				return;
 			}
-			if ((await sha256(local)) !== state.syncedHash) {
-				this.notSynced.set(path, "Edited here, so the relay's changes to it are held back.");
-				return;
-			}
+			await this.writeThenRecord(path, url, text, local, handle);
+			return;
 		}
-		if (state && local === null) {
+		if (local === null) {
 			this.notSynced.set(path, "Deleted here. Deletes are not followed yet.");
 			return;
 		}
-		if (local !== text) await this.options.files.write(path, text);
-		await this.record(path, url, text, heads);
+		if ((await sha256(local)) === state.syncedHash) {
+			// O4, and O7: the plugin's own write coming back stops here.
+			if (sameHeads(handle.heads(), state.syncedHeads)) {
+				this.notSynced.delete(path);
+				return;
+			}
+			await this.writeThenRecord(path, url, text, local, handle);
+			return;
+		}
+		const merged = this.outbound(handle, state, local);
+		if (merged === null) {
+			this.notSynced.set(path, "Its last synced version could not be read.");
+			return;
+		}
+		await this.writeThenRecord(path, url, merged, local, handle);
+	}
+
+	// O3. Diff against the base and apply at the base (O2), never against the
+	// document's current text, where a change that arrived since would look
+	// like something the member deleted. Returns the merged text.
+	private outbound(handle: DocHandle<unknown>, state: NoteState, local: string): string | null {
+		const base = state.syncedHeads as UrlHeads;
+		const baseText = noteText(handle.view(base).doc());
+		if (baseText === null) return null;
+		const splices = splicesBetween(baseText, local);
+		if (splices.length > 0) {
+			handle.changeAt(base, (doc) => {
+				for (const { index, remove, insert } of splices) {
+					A.splice(doc as A.Doc<unknown>, ["content"], index, remove, insert);
+				}
+			});
+		}
+		return noteText(handle.doc());
+	}
+
+	// Writes `text` over a file that still holds `local`, then records it. A
+	// file that changed meanwhile, as an open note being typed in does, is
+	// left alone and the note queued again.
+	private async writeThenRecord(path: string, url: string, text: string, local: string | null, handle: DocHandle<unknown>) {
+		if (local !== text && !(await this.options.files.write(path, text, local))) {
+			this.schedule(path);
+			return;
+		}
+		await this.record(path, url, text, handle.heads());
 		this.notSynced.delete(path);
 	}
 

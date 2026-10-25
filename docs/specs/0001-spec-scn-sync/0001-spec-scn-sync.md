@@ -525,6 +525,12 @@ the editor's buffer stands in for the file:
   saves the buffer to disk, the `modify` event carries that same hash and is
   ignored by O3 step 2.
 
+- Both are inside the plugin's file access: reading a note open in an editor
+  returns the buffer, and writing to it applies each change with
+  `editor.replaceRange`, last first. A write only lands if the file or buffer
+  still holds what was read; otherwise the note is queued again with the
+  newer text, so keystrokes typed meanwhile are never undone.
+
 **Unverified** inside Obsidian. If it does not hold up, the fallback is to
 delay an inbound write to an open note until the member stops typing, and
 accept a moment of staleness.

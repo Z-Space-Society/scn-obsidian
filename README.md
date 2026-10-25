@@ -7,13 +7,13 @@ step with Automerge documents on
 and iPhone, signed in through
 [Corliss](https://github.com/Z-Space-Society/Corliss).
 
-## Status: download only
+## Status: edits sync both ways
 
 SCN Sync signs in through Corliss, connects an Obsidian vault to one of the
-member's relay vaults, and keeps the files up to date with it: notes written
-on SCN, on other devices or by Claude arrive as files. Edits made in
-Obsidian are not sent yet, and a note edited here stops taking changes from
-SCN until they are. The build order is in issue #2. The spec is at
+member's relay vaults, and keeps the two in step: notes written on SCN, on
+other devices or by Claude arrive as files, and edits made in Obsidian go
+back, merging with anything made meanwhile. New notes, renames, moves and
+deletes made in Obsidian are not sent yet. The build order is in issue #2. The spec is at
 [`docs/specs/0001-spec-scn-sync/`](docs/specs/0001-spec-scn-sync/0001-spec-scn-sync.md).
 
 ## Build

@@ -37,8 +37,10 @@ export class MemoryNoteStore implements NoteStore {
 // The vault's markdown files, by vault path.
 export interface Files {
 	read(path: string): Promise<string | null>;
-	// Creates the file and any missing folders, or replaces its text.
-	write(path: string, text: string): Promise<void>;
+	// Creates the file and any missing folders, or replaces its text. With
+	// `expected`, only if the file still holds exactly that: false means it
+	// changed since it was read, and nothing was written.
+	write(path: string, text: string, expected?: string | null): Promise<boolean>;
 	// Every markdown file the sync may act on.
 	list(): string[];
 }
@@ -50,8 +52,10 @@ export class MemoryFiles implements Files {
 		return this.files.get(path) ?? null;
 	}
 
-	async write(path: string, text: string) {
+	async write(path: string, text: string, expected?: string | null) {
+		if (expected !== undefined && (this.files.get(path) ?? null) !== expected) return false;
 		this.files.set(path, text);
+		return true;
 	}
 
 	list() {

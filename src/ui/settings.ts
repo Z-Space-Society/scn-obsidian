@@ -61,7 +61,7 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 			new Setting(containerEl).setName("Status").setHeading();
 			new Setting(containerEl)
 				.setName(plugin.statusText())
-				.setDesc("Changes made on SCN, on other devices and by Claude, arrive here. Edits made here are not sent yet.");
+				.setDesc("Edits made here, on other devices and by Claude reach each other. Notes made here are not uploaded yet.");
 			const { sync } = plugin;
 			for (const [path, reason] of sync?.notSynced ?? []) {
 				new Setting(containerEl).setName(path).setDesc(reason);

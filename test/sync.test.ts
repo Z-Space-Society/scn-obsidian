@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { Repo, type DocHandle } from "@automerge/automerge-repo/slim";
 import { MemoryFiles, MemoryNoteStore } from "../src/notes.ts";
+import { noteText } from "../src/schema.ts";
 import { Sync, copyName, type Plan } from "../src/sync/sync.ts";
 import { A, eventually, folder, note, pipes, relayRepo } from "./helpers.ts";
 
@@ -114,17 +115,6 @@ describe("inbound", () => {
 		);
 	});
 
-	it("holds back a change to a note edited here, and keeps the edit", async () => {
-		const setup = relayWithNotes();
-		const { sync, files } = plugin(setup);
-		await sync.start();
-		await sync.idle();
-		files.files.set("hello.md", "edited locally\n");
-		append(setup.hello, "From the relay.\n");
-		await eventually(() => sync.notSynced.has("hello.md"), "the note to be held back");
-		assert.equal(files.files.get("hello.md"), "edited locally\n");
-	});
-
 	it("counts a note made here as not uploaded", async () => {
 		const setup = relayWithNotes();
 		const { sync, files } = plugin(setup);
@@ -145,6 +135,84 @@ describe("inbound", () => {
 			doc.docs.push({ name: "new.md", type: "md", url: fresh.url });
 		});
 		await eventually(() => files.files.get("Art Projects/new.md") === "brand new\n", "the new note");
+	});
+});
+
+async function connected() {
+	const setup = relayWithNotes();
+	const local = plugin(setup);
+	await local.sync.start();
+	await local.sync.idle();
+	return { ...setup, ...local };
+}
+
+function textOf(handle: DocHandle<unknown>): string | null {
+	return noteText(handle.doc());
+}
+
+describe("outbound", () => {
+	it("sends an edit made here to the relay", async () => {
+		const { sync, files, hello } = await connected();
+		files.files.set("hello.md", "# Hello there\n\nFrom Claude.\n");
+		sync.fileChanged("hello.md");
+		await eventually(() => textOf(hello) === "# Hello there\n\nFrom Claude.\n", "the edit to reach the relay");
+	});
+
+	it("merges an edit here with one made on the relay since the last sync", async () => {
+		const { sync, files, hello } = await connected();
+		files.files.set("hello.md", "# Hello there\n\nFrom Claude.\n");
+		append(hello, "Appended on the relay.\n");
+		sync.fileChanged("hello.md");
+		const both = "# Hello there\n\nFrom Claude.\nAppended on the relay.\n";
+		await eventually(() => textOf(hello) === both && files.files.get("hello.md") === both, "both edits in both places");
+	});
+
+	it("merges a local edit not yet sent before writing a relay change", async () => {
+		const { files, hello } = await connected();
+		// Saved here, with no event yet: the relay's change arrives first.
+		files.files.set("hello.md", "# Hi\n\nFrom Claude.\n");
+		append(hello, "Arrived first.\n");
+		const both = "# Hi\n\nFrom Claude.\nArrived first.\n";
+		await eventually(() => textOf(hello) === both && files.files.get("hello.md") === both, "the merge");
+	});
+
+	it("does nothing for a save with no change, or for its own write coming back", async () => {
+		const { sync, hello, files } = await connected();
+		const before = hello.heads();
+		sync.fileChanged("hello.md");
+		await sync.idle();
+		assert.deepEqual(hello.heads(), before);
+
+		append(hello, "From the relay.\n");
+		await eventually(() => files.files.get("hello.md")?.endsWith("From the relay.\n") ?? false, "the inbound write");
+		const after = hello.heads();
+		// The modify event Obsidian fires for that write.
+		sync.fileChanged("hello.md");
+		await sync.idle();
+		await new Promise((resolve) => setTimeout(resolve, 50));
+		assert.deepEqual(hello.heads(), after);
+	});
+
+	it("keeps emoji and CRLF exactly", async () => {
+		const { sync, files, heat, option } = await connected();
+		const heatText = "---\ntags: [art]\n---\nHeat map, warmer\r\nsecond line\r\n";
+		const optionText = "Option 2 🚀🛸 and 👩‍💻\n";
+		files.files.set("Art Projects/Personal Heat Map.md", heatText);
+		files.files.set("Art Projects/Personal Heat Map - Interface Option 2.md", optionText);
+		sync.fileChanged("Art Projects/Personal Heat Map.md");
+		sync.fileChanged("Art Projects/Personal Heat Map - Interface Option 2.md");
+		await eventually(() => textOf(heat) === heatText && textOf(option) === optionText, "both notes on the relay");
+	});
+
+	it("ends equal after a burst of saves", async () => {
+		const { sync, files, hello } = await connected();
+		let text = "# Hello\n\nFrom Claude.\n";
+		for (let i = 0; i < 20; i++) {
+			text += `line ${i}\n`;
+			files.files.set("hello.md", text);
+			sync.fileChanged("hello.md");
+		}
+		await eventually(() => textOf(hello) === text, "the last save on the relay");
 	});
 });
 
@@ -181,9 +249,9 @@ describe("a lost store", () => {
 		const files = first.files;
 		const writes: string[] = [];
 		const write = files.write.bind(files);
-		files.write = async (path, text) => {
+		files.write = async (path, text, expected) => {
 			writes.push(path);
-			await write(path, text);
+			return write(path, text, expected);
 		};
 		const second = plugin(setup, { files, store: new MemoryNoteStore() });
 		await second.sync.start();

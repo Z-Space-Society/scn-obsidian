@@ -1,6 +1,7 @@
 # 0001 Spec: SCN Sync (the Obsidian plugin)
 
-Status: draft, 2026-10-08.
+Status: draft, 2026-10-08. Revised 2026-10-24 against relay v0.2.1, which
+shipped after the first draft.
 
 ## Goal
 
@@ -21,7 +22,7 @@ underneath are what let edits merge.
 ## Non-goals
 
 - Creating, renaming or deleting a vault. Vaults are created on Corliss's
-  Obsidian page. The plugin only connects to one.
+  Notes page. The plugin only connects to one.
 - Sharing a vault between members.
 - Importing an existing Obsidian vault in place. Setup starts from a new,
   empty Obsidian vault.
@@ -31,8 +32,10 @@ underneath are what let edits merge.
 - Editing notes outside Obsidian on iOS. It is a laptop case.
 - Being an MCP server. The MCP service lives in the relay.
 - End-to-end encryption. The relay can read every note.
-- A listing in Obsidian's community directory. Installs go through BRAT
-  until that is decided.
+- Pointing members at BRAT. Members install SCN Sync from Obsidian's
+  community directory; see "Distribution". BRAT is how development and
+  proof-of-concept builds reach a laptop or an iPhone, and nothing a member
+  reads mentions it.
 
 ## Scope and order
 
@@ -82,6 +85,23 @@ Pinned dependencies, exact versions, no ranges:
 - A dependency bump is a change to this spec and needs a sync test against
   the deployed relay.
 
+## Distribution
+
+Members install from Obsidian's community directory, which works the same on
+desktop and iOS and updates the plugin itself. What a listing takes is in
+issue #1. In short:
+
+- `manifest.json` at the repo root, and a GitHub release per version whose
+  tag is exactly the manifest version, carrying `main.js`, `manifest.json`
+  and `styles.css`. The tag `0.0.1` belongs to the probe.
+- The README discloses network use (Corliss and the relay, nothing else),
+  that an SCN membership is required, and that notes are not end-to-end
+  encrypted.
+- `main.js` builds from source with a documented command, since reviewers
+  will ask about a 5 MB bundle with inlined WASM.
+
+Until the listing, development builds reach test devices through BRAT.
+
 ## Build and bundling
 
 - One CommonJS `main.js` built with esbuild, as in
@@ -104,11 +124,12 @@ Pinned dependencies, exact versions, no ranges:
 What the member does, in order. Steps marked **user** are ones the plugin
 cannot do.
 
-1. **User:** on Corliss's Obsidian page, create a vault. Copy the sync URL
-   shown there.
+1. **User:** on Corliss's Notes page (`/notes/`), create a vault. Copy
+   the sync URL shown there.
 2. **User:** in Obsidian, create a new, empty vault. On iPhone, leave
    **Store in iCloud** off.
-3. **User:** install SCN Sync through BRAT and enable it.
+3. **User:** install SCN Sync from Community plugins and enable it. During
+   development, BRAT stands in for this step.
 4. The plugin opens its setup modal from `onUserEnable`.
 5. The member pastes the sync URL and taps Sign in. The browser opens,
    Corliss signs them in, and control returns to Obsidian.
@@ -142,8 +163,7 @@ issuer.
 - The plugin fetches
   `https://<sync host>/.well-known/oauth-protected-resource` and reads
   `authorization_servers[0]` as the issuer and `resource` as the audience.
-  **This needs the relay to serve that document on the sync listener.** See
-  "Requests to the other specs".
+  The relay serves that document on the sync listener from v0.2.1.
 - From the issuer it fetches `/.well-known/oauth-authorization-server` and
   reads the authorize and token endpoints.
 - The settings tab has an Advanced field for the issuer, used when discovery
@@ -242,6 +262,11 @@ so other Automerge tools can read the same tree.
 ```
 
 - `docs` is the key that holds the entries. It is an Automerge list.
+- Every string the relay writes, in this document and in D2 (`title`,
+  `name`, `type`, `extension`, `mimeType`, and each entry's `name`, `type`
+  and `url`), is an Automerge **text object**, not a scalar string
+  (`reach::put_string` in the relay). A reader accepts either. The plugin
+  writes text objects, as the relay does.
 - A vault's root is a folder document. Its `title` is the vault's name at
   creation and is not kept in step afterwards.
 
@@ -375,8 +400,9 @@ procedure, V3, against the vault it was already connected to.
 ### V1. Listing
 
 `GET https://<sync host>/vaults` with the access token as a bearer, through
-`requestUrl`. The answer is the member's vaults: root document ID, name,
-created, last change.
+`requestUrl`. The answer is `{"vaults": [...]}`, the member's own, each with
+`root_doc_id`, `url` (`automerge:<root_doc_id>`), `name`, `created_at` and
+`last_change_at`, which is null for a vault never changed.
 
 ### V2. Picking
 
@@ -675,7 +701,7 @@ on the relay, or a fault.
   counted in the status. The file stays editable. Its edits stay in the
   local document.
 - Three or more notes unavailable at once is reported as a vault problem,
-  with a pointer to the Obsidian page.
+  with a pointer to Corliss's Notes page.
 
 **Unverified:** what automerge-repo 2.5.6 does when a document it already
 holds locally is answered with `doc-unavailable`. Relay open question 2. The
@@ -722,7 +748,8 @@ stay where they are.
 | IndexedDB | Durable in practice | Can be evicted. Lost-store recovery (L3) is expected to run sometimes. |
 | Sign-in return | The OS hands the address to Obsidian | Safari asks "Open this page in Obsidian?" first. Works from a cold start. |
 | Syncs while | Obsidian is running | Obsidian is in the foreground |
-| Install | BRAT, or files copied by hand | BRAT only |
+| Install, members | Community directory | Community directory |
+| Install, development | BRAT, or files copied by hand | BRAT only |
 | Lockdown Mode | Not applicable | Unsupported |
 
 Everything else is the same code.
@@ -750,7 +777,9 @@ Proposed, to be adjusted when written:
 
 Things this spec needs that the relay and Corliss specs do not yet say.
 
-1. **Relay: serve protected resource metadata on the sync listener.**
+Requests 1, 3 and 4 are met by relay v0.2.1.
+
+1. **Done.** **Relay: serve protected resource metadata on the sync listener.**
    `GET /.well-known/oauth-protected-resource` returning `resource` (the
    sync audience) and `authorization_servers` (the issuer), as the MCP
    listener already does. Without it the member pastes two URLs.
@@ -758,10 +787,10 @@ Things this spec needs that the relay and Corliss specs do not yet say.
    `https://sync.<cluster_domain>`, no trailing slash. The plugin sends it as
    `resource`, Corliss issues it as `aud`, the relay expects it as
    `SYNC_AUDIENCE`, and the socket uses the same host over `wss`.
-3. **Relay: the document schema**, D6 above.
-4. **Relay: `GET /vaults` response shape.** A JSON list of
-   `{root_doc_id, name, created_at, last_change_at}` is assumed.
-5. **Corliss: the Obsidian page shows the sync URL in the form in 2.**
+3. **Done.** **Relay: the document schema**, D6 above.
+4. **Done.** **Relay: `GET /vaults` response shape.** The relay answers
+   `{"vaults": [...]}`; see V1.
+5. **Corliss: the Notes page shows the sync URL in the form in 2.**
 
 ## Test plan
 
@@ -823,9 +852,8 @@ Still to run:
 
 ## Open questions
 
-1. **The issuer.** S1 depends on request 1. If the relay will not serve the
-   metadata on the sync listener, the Obsidian page gives two values to
-   paste, or a single `obsidian://` setup link.
+1. **The issuer.** Answered: the relay serves the metadata on the sync
+   listener (request 1), so the member pastes one URL.
 2. **The open-editor path.** O5 is the design and is unverified. Check 5
    decides between it and the fallback.
 3. **Delete against a concurrent edit.** T5 is a heuristic. A better rule
@@ -839,9 +867,8 @@ Still to run:
    marker in `data.json`.
 6. **A size limit for one note.** 2 MB is a guess. Automerge text of that
    size has not been measured here.
-7. **Community directory.** Not planned. If it is, the id `scn-sync` and the
-   name SCN Sync already satisfy the directory's rules, and network use
-   must be disclosed in the README.
+7. **Community directory.** Answered: members install from it; see
+   "Distribution" and issue #1.
 8. **Switching vaults.** Disconnect then connect works. Whether the local
    files of the old vault should be moved aside is not decided.
 9. **Bulk import.** Out of scope. V3's adopt-or-copy rule is most of what it
@@ -854,5 +881,7 @@ Still to run:
    connect (V3); outbound and inbound; structure changes; reconciliation;
    UI.
 3. Laptop checks 1 to 13 against the deployed relay.
-4. Release through BRAT. iPhone checks 14 to 19.
-5. Retire `probe/` once check 17 has run long enough to answer it.
+4. Development releases through BRAT. iPhone checks 14 to 19.
+5. Submit to the community directory (issue #1). Members are pointed at the
+   plugin only once it is listed.
+6. Retire `probe/` once check 17 has run long enough to answer it.

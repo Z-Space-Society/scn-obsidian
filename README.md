@@ -7,10 +7,34 @@ step with Automerge documents on
 and iPhone, signed in through
 [Corliss](https://github.com/Z-Space-Society/Corliss).
 
-## Status: probe only
+## Status: sign-in only
 
-The plugin is not written yet. Its spec is drafted at
+SCN Sync signs in through Corliss and connects an Obsidian vault to one of
+the member's relay vaults. It does not sync files yet. The spec is at
 [`docs/specs/0001-spec-scn-sync/`](docs/specs/0001-spec-scn-sync/0001-spec-scn-sync.md).
+
+## Build
+
+```
+npm install
+npm test
+npm run build
+```
+
+`npm run build` type-checks and writes `main.js` at the repo root. `npm run
+dev` rebuilds it on every change. The tests run under Node's own test
+runner, with no framework, and cover what does not need Obsidian.
+
+To load a development build on a laptop, make a new, empty Obsidian vault
+and link this repo in as its plugin folder:
+
+```
+ln -s "$PWD" "<vault>/.obsidian/plugins/scn-sync"
+```
+
+Then enable SCN Sync under Community plugins and reload Obsidian after each
+build. Disable the probe first if it is installed in the same vault: both
+register `obsidian://scn-obsidian`.
 
 Also here is [`probe/`](probe/README.md), a throwaway plugin that tests on
 a real iPhone the things the design depends on and that could not be settled

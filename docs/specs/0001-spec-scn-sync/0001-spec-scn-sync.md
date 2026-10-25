@@ -1,6 +1,7 @@
 # 0001 Spec: SCN Sync (the Obsidian plugin)
 
-Status: draft, 2026-10-08.
+Status: draft, 2026-10-08. Revised 2026-10-24 against relay v0.2.1, which
+shipped after the first draft.
 
 ## Goal
 
@@ -162,8 +163,7 @@ issuer.
 - The plugin fetches
   `https://<sync host>/.well-known/oauth-protected-resource` and reads
   `authorization_servers[0]` as the issuer and `resource` as the audience.
-  **This needs the relay to serve that document on the sync listener.** See
-  "Requests to the other specs".
+  The relay serves that document on the sync listener from v0.2.1.
 - From the issuer it fetches `/.well-known/oauth-authorization-server` and
   reads the authorize and token endpoints.
 - The settings tab has an Advanced field for the issuer, used when discovery
@@ -262,6 +262,11 @@ so other Automerge tools can read the same tree.
 ```
 
 - `docs` is the key that holds the entries. It is an Automerge list.
+- Every string the relay writes, in this document and in D2 (`title`,
+  `name`, `type`, `extension`, `mimeType`, and each entry's `name`, `type`
+  and `url`), is an Automerge **text object**, not a scalar string
+  (`reach::put_string` in the relay). A reader accepts either. The plugin
+  writes text objects, as the relay does.
 - A vault's root is a folder document. Its `title` is the vault's name at
   creation and is not kept in step afterwards.
 
@@ -395,8 +400,9 @@ procedure, V3, against the vault it was already connected to.
 ### V1. Listing
 
 `GET https://<sync host>/vaults` with the access token as a bearer, through
-`requestUrl`. The answer is the member's vaults: root document ID, name,
-created, last change.
+`requestUrl`. The answer is `{"vaults": [...]}`, the member's own, each with
+`root_doc_id`, `url` (`automerge:<root_doc_id>`), `name`, `created_at` and
+`last_change_at`, which is null for a vault never changed.
 
 ### V2. Picking
 
@@ -771,7 +777,9 @@ Proposed, to be adjusted when written:
 
 Things this spec needs that the relay and Corliss specs do not yet say.
 
-1. **Relay: serve protected resource metadata on the sync listener.**
+Requests 1, 3 and 4 are met by relay v0.2.1.
+
+1. **Done.** **Relay: serve protected resource metadata on the sync listener.**
    `GET /.well-known/oauth-protected-resource` returning `resource` (the
    sync audience) and `authorization_servers` (the issuer), as the MCP
    listener already does. Without it the member pastes two URLs.
@@ -779,9 +787,9 @@ Things this spec needs that the relay and Corliss specs do not yet say.
    `https://sync.<cluster_domain>`, no trailing slash. The plugin sends it as
    `resource`, Corliss issues it as `aud`, the relay expects it as
    `SYNC_AUDIENCE`, and the socket uses the same host over `wss`.
-3. **Relay: the document schema**, D6 above.
-4. **Relay: `GET /vaults` response shape.** A JSON list of
-   `{root_doc_id, name, created_at, last_change_at}` is assumed.
+3. **Done.** **Relay: the document schema**, D6 above.
+4. **Done.** **Relay: `GET /vaults` response shape.** The relay answers
+   `{"vaults": [...]}`; see V1.
 5. **Corliss: the Notes page shows the sync URL in the form in 2.**
 
 ## Test plan
@@ -844,9 +852,8 @@ Still to run:
 
 ## Open questions
 
-1. **The issuer.** S1 depends on request 1. If the relay will not serve the
-   metadata on the sync listener, Corliss's Notes page gives two values to
-   paste, or a single `obsidian://` setup link.
+1. **The issuer.** Answered: the relay serves the metadata on the sync
+   listener (request 1), so the member pastes one URL.
 2. **The open-editor path.** O5 is the design and is unverified. Check 5
    decides between it and the fallback.
 3. **Delete against a concurrent edit.** T5 is a heuristic. A better rule
@@ -860,9 +867,8 @@ Still to run:
    marker in `data.json`.
 6. **A size limit for one note.** 2 MB is a guess. Automerge text of that
    size has not been measured here.
-7. **Community directory.** Not planned. If it is, the id `scn-sync` and the
-   name SCN Sync already satisfy the directory's rules, and network use
-   must be disclosed in the README.
+7. **Community directory.** Answered: members install from it; see
+   "Distribution" and issue #1.
 8. **Switching vaults.** Disconnect then connect works. Whether the local
    files of the old vault should be moved aside is not decided.
 9. **Bulk import.** Out of scope. V3's adopt-or-copy rule is most of what it

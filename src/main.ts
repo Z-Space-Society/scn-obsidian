@@ -1,3 +1,7 @@
+import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64";
+import { initializeBase64Wasm } from "@automerge/automerge/slim";
+import { Repo } from "@automerge/automerge-repo/slim";
+import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
 import { Notice, Plugin, requestUrl } from "obsidian";
 import {
 	PROTOCOL_ACTION,
@@ -12,11 +16,15 @@ import {
 	type Http,
 	type PendingSignIn,
 } from "./auth.ts";
+import { Connection, type ConnectionState } from "./connection.ts";
+import { IndexedDBNoteStore, deleteDatabase } from "./idb.ts";
 import { describe } from "./messages.ts";
 import { listVaults, type Vault } from "./relay.ts";
 import { DEFAULT_SETTINGS, signedInAsSomeoneElse, type Settings } from "./state.ts";
 import { ScnSyncSettingTab } from "./ui/settings.ts";
-import { SetupModal, VaultPickModal } from "./ui/setup.ts";
+import { Sync } from "./sync/sync.ts";
+import { ConnectModal, SetupModal, VaultPickModal } from "./ui/setup.ts";
+import { VaultFiles } from "./vaultfiles.ts";
 
 const PENDING_KEY = "scn-sync-pending-sign-in";
 const SECRET_ID = "scn-sync-refresh-token";
@@ -41,12 +49,28 @@ const http: Http = async (request) => {
 	return { status: response.status, json };
 };
 
+// Today as YYYY-MM-DD in the member's own time zone.
+function localDate(): string {
+	const now = new Date();
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
 export default class ScnSync extends Plugin {
 	settings: Settings = { ...DEFAULT_SETTINGS };
 	keeper!: TokenKeeper;
 	// Set by whichever settings screen is showing, so a sign-in finishing in
 	// the background redraws it.
 	onChange: (() => void) | null = null;
+	// Present while syncing.
+	sync: Sync | null = null;
+	connectionState: ConnectionState | null = null;
+	private repo: Repo | null = null;
+	private connection: Connection | null = null;
+	private noteStore: IndexedDBNoteStore | null = null;
+	private starting: Promise<void> | null = null;
+	private wasm: Promise<void> | null = null;
+	private statusEl!: HTMLElement;
 
 	async onload() {
 		this.settings = { ...DEFAULT_SETTINGS, ...((await this.loadData()) ?? {}) };
@@ -96,6 +120,27 @@ export default class ScnSync extends Plugin {
 			},
 		});
 		this.addSettingTab(new ScnSyncSettingTab(this.app, this));
+		// Not available on iOS, where the ribbon and settings carry the status.
+		this.statusEl = this.addStatusBarItem();
+		this.showStatus();
+
+		this.registerDomEvent(document, "visibilitychange", () => {
+			if (document.visibilityState === "visible") this.connection?.resume();
+		});
+		// onload only registers things. The WASM, the repo, IndexedDB and the
+		// socket start once the workspace is up.
+		this.app.workspace.onLayoutReady(() => {
+			// Registered here, which skips the create event Obsidian fires for
+			// every existing file at load. For now they only move the status.
+			for (const name of ["create", "delete", "rename"] as const) {
+				this.registerEvent(this.app.vault.on(name as "create", () => this.showStatus()));
+			}
+			void this.startSync();
+		});
+	}
+
+	onunload() {
+		void this.stopSync();
 	}
 
 	onUserEnable() {
@@ -151,6 +196,7 @@ export default class ScnSync extends Plugin {
 			await this.save();
 			new Notice("SCN Sync: signed in.");
 			if (!this.settings.vaultUrl) new VaultPickModal(this.app, this).open();
+			else void this.startSync();
 		} catch (e) {
 			new Notice(`SCN Sync: ${describe(e)}`, 0);
 		}
@@ -165,20 +211,118 @@ export default class ScnSync extends Plugin {
 		this.settings.vaultUrl = vault.url;
 		this.settings.vaultName = vault.name;
 		await this.save();
-		new Notice(`SCN Sync: connected to ${vault.name}.`);
+		await this.startSync();
 	}
 
-	// Keeps every file. Choosing another vault is a disconnect, then a connect.
+	// Keeps every file. The repo and the per-note state go, so a later
+	// connect starts from the connect procedure. Choosing another vault is a
+	// disconnect, then a connect.
 	async disconnect() {
+		await this.stopSync();
+		if (this.settings.storeId) {
+			await deleteDatabase(this.storeName());
+			await deleteDatabase(`${this.storeName()}-notes`);
+		}
 		this.settings.vaultUrl = "";
 		this.settings.vaultName = "";
+		this.settings.storeId = "";
 		await this.save();
 	}
 
-	// S6. Local files are kept.
+	// S6. Local files and documents are kept.
 	signOut() {
+		void this.stopSync();
 		this.keeper.signOut();
 		this.onChange?.();
+	}
+
+	private storeName(): string {
+		return `scn-sync-${this.settings.storeId}`;
+	}
+
+	startSync(): Promise<void> {
+		this.starting ??= this.runSync().finally(() => (this.starting = null));
+		return this.starting;
+	}
+
+	private async runSync() {
+		if (this.sync || !this.settings.vaultUrl || !this.signedIn()) {
+			this.showStatus();
+			return;
+		}
+		this.wasm ??= initializeBase64Wasm(automergeWasmBase64);
+		await this.wasm;
+		if (!this.settings.storeId) {
+			this.settings.storeId = crypto.randomUUID();
+			await this.save();
+		}
+		// IndexedDB is a cache of the relay. Asked, and the answer ignored:
+		// iOS refused it in testing.
+		void navigator.storage?.persist?.().catch(() => false);
+
+		const repo = new Repo({ storage: new IndexedDBStorageAdapter(this.storeName()), network: [] });
+		const connection = new Connection({
+			repo,
+			syncUrl: this.settings.syncUrl,
+			keeper: this.keeper,
+			onState: (state) => {
+				const was = this.connectionState;
+				this.connectionState = state;
+				if (state === "signed out" && was !== "signed out") {
+					new Notice("SCN Sync: signed out. Sign in again to keep syncing.", 0);
+				}
+				this.showStatus();
+			},
+		});
+		const noteStore = new IndexedDBNoteStore(`${this.storeName()}-notes`);
+		let declined = false;
+		const sync = new Sync({
+			repo,
+			rootUrl: this.settings.vaultUrl,
+			files: new VaultFiles(this.app),
+			store: noteStore,
+			confirm: (plan) => new ConnectModal(this.app, plan, this.settings.vaultName).ask(),
+			onStatus: () => {
+				if (sync.declined && !declined) {
+					declined = true;
+					void this.disconnect();
+				}
+				this.showStatus();
+			},
+			today: localDate,
+		});
+		Object.assign(this, { repo, connection, noteStore, sync });
+		connection.start();
+		await sync.start();
+	}
+
+	async stopSync() {
+		await this.starting?.catch(() => {});
+		const { sync, connection, repo, noteStore } = this;
+		Object.assign(this, { sync: null, connection: null, repo: null, noteStore: null, connectionState: null });
+		sync?.stop();
+		connection?.stop();
+		await repo?.shutdown().catch(() => {});
+		await noteStore?.close();
+		this.showStatus();
+	}
+
+	statusText(): string {
+		const { settings, sync, connectionState } = this;
+		if (!settings.vaultUrl) return this.signedIn() ? "No vault" : "Not set up";
+		if (!this.signedIn() || connectionState === "signed out") return "Signed out";
+		if (connectionState === "offline") return "Offline";
+		if (sync && sync.notSynced.size > 0) return `${sync.notSynced.size} not syncing`;
+		const unsent = sync?.unsent().length ?? 0;
+		if (unsent > 0) return `${unsent} not uploaded`;
+		if (!sync || sync.working || connectionState === "connecting") return "Syncing";
+		return "Up to date";
+	}
+
+	// The status bar only. The settings tab reads the status when drawn, and
+	// redrawing it on every change would take the cursor out of its fields.
+	showStatus() {
+		this.statusEl?.setText(`SCN Sync: ${this.statusText()}`);
 	}
 
 	// The link for a member with no vault. Corliss's Notes page is the only

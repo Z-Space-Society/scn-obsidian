@@ -13,5 +13,11 @@
 		"esbuild": "0.28.2",
 		"obsidian": "1.13.1",
 		"typescript": "7.0.2"
+	},
+	"dependencies": {
+		"@automerge/automerge": "3.5.0",
+		"@automerge/automerge-repo": "2.5.6",
+		"@automerge/automerge-repo-network-websocket": "2.5.6",
+		"@automerge/automerge-repo-storage-indexeddb": "2.5.6"
 	}
 }

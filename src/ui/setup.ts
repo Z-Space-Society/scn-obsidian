@@ -1,5 +1,6 @@
 import { App, FileSystemAdapter, Modal, Notice, Platform, Setting } from "obsidian";
 import type ScnSync from "../main.ts";
+import type { Plan } from "../sync/sync.ts";
 import { describe } from "../messages.ts";
 
 // Says what is wrong with where this vault lives, or null. On iOS the path is
@@ -143,5 +144,74 @@ export class VaultPickModal extends Modal {
 
 	onClose() {
 		this.contentEl.empty();
+	}
+}
+
+function count(n: number, one: string, many: string): string {
+	return `${n} ${n === 1 ? one : many}`;
+}
+
+// V3. The member is told what connecting will do before it is done.
+export class ConnectModal extends Modal {
+	private plan: Plan;
+	private vaultName: string;
+	private answer: (yes: boolean) => void = () => {};
+	private answered = false;
+
+	constructor(app: App, plan: Plan, vaultName: string) {
+		super(app);
+		this.plan = plan;
+		this.vaultName = vaultName;
+	}
+
+	ask(): Promise<boolean> {
+		return new Promise((resolve) => {
+			this.answer = resolve;
+			this.open();
+		});
+	}
+
+	private finish(yes: boolean) {
+		if (this.answered) return;
+		this.answered = true;
+		this.answer(yes);
+		this.close();
+	}
+
+	onOpen() {
+		const { contentEl, plan } = this;
+		this.setTitle(`Connect to ${this.vaultName}`);
+		const list = contentEl.createEl("ul");
+		if (plan.download.length) {
+			list.createEl("li", { text: `${count(plan.download.length, "note is", "notes are")} downloaded from SCN.` });
+		}
+		if (plan.adopt.length) {
+			list.createEl("li", { text: `${count(plan.adopt.length, "note here already matches", "notes here already match")} and ${plan.adopt.length === 1 ? "is" : "are"} left as ${plan.adopt.length === 1 ? "it is" : "they are"}.` });
+		}
+		if (plan.copy.length) {
+			list.createEl("li", {
+				text: `${count(plan.copy.length, "note here differs", "notes here differ")} from SCN. Yours ${plan.copy.length === 1 ? "is" : "are"} kept as a "local copy" beside the original, and SCN's version takes the original name.`,
+			});
+		}
+		if (plan.localOnly.length) {
+			list.createEl("li", {
+				text: `${count(plan.localOnly.length, "note here is", "notes here are")} not on SCN and ${plan.localOnly.length === 1 ? "stays" : "stay"} here. SCN Sync does not upload ${plan.localOnly.length === 1 ? "it" : "them"} yet.`,
+			});
+		}
+		if (list.childElementCount === 0) list.createEl("li", { text: "This vault is empty on SCN and here." });
+		contentEl.createEl("p", { text: "Nothing here is deleted or overwritten without a copy." });
+		new Setting(contentEl)
+			.addButton((b) => b.setButtonText("Cancel").onClick(() => this.finish(false)))
+			.addButton((b) =>
+				b
+					.setButtonText("Connect")
+					.setCta()
+					.onClick(() => this.finish(true)),
+			);
+	}
+
+	onClose() {
+		this.contentEl.empty();
+		this.finish(false);
 	}
 }

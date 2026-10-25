@@ -362,11 +362,16 @@ question:
 
 | What | Where | Why there |
 |---|---|---|
-| Automerge documents | IndexedDB, through automerge-repo's storage adapter | Decision 12 |
-| Per-note sync state (L2) | IndexedDB, the plugin's own object store | Lost together with the documents, so the two can never disagree |
-| Sync URL, issuer, member DID, vault root URL, vault name | `data.json` | Must survive a lost IndexedDB |
+| Automerge documents | IndexedDB, through automerge-repo's storage adapter, in a database named `scn-sync-<storeId>` | Decision 12 |
+| Per-note sync state (L2) | IndexedDB, the plugin's own database `scn-sync-<storeId>-notes` | Lost with the documents, since eviction takes an origin's storage whole |
+| Sync URL, issuer, member DID, vault root URL, vault name, `storeId` | `data.json` | Must survive a lost IndexedDB |
 | Refresh token | `SecretStorage` | S4 |
 | Pending sign-in | `app.saveLocalStorage` | S2 |
+
+IndexedDB belongs to Obsidian's origin and is shared by every vault it
+opens, so each Obsidian vault names its databases by a random `storeId`,
+made at the first connect. Disconnect deletes both databases and clears
+`storeId`, so the next connect runs V3 from nothing.
 
 On iOS the plugin calls `navigator.storage.persist()` at startup and ignores
 the answer. It was refused in testing. IndexedDB is treated as a cache of
@@ -647,16 +652,24 @@ the relay drops the messages that would say so. See open question 3.
 - **The plugin owns reconnection.** The WebSocket client adapter's own retry
   reuses its URL, which carries a token that expires, so it must not be the
   thing that reconnects. On every close the plugin removes the adapter, gets
-  a valid token, and adds a new one. **Unverified** that the 2.5.6 adapter's
-  retry can be turned off and that an adapter can be swapped cleanly on a
-  live repo; see the test plan.
+  a valid token, and adds a new one.
+- In 2.5.6 the retry is turned off by overriding the adapter's `onClose`, and
+  by a `retryInterval` longer than any connection lives. A `retryInterval` of
+  0 does not turn it off: the adapter would reconnect on every tick until a
+  socket opened. Read from the 2.5.6 source; check 9 confirms it live.
 - Reconnect backs off at 1, 2, 4, 8, 16 and 30 seconds, then stays at 30.
 
 ### N2. Token expiry
 
 The relay closes the connection at the token's `exp`, every 15 minutes. The
-plugin does not wait for that. At `exp` minus 60 seconds it refreshes and
-opens a new connection with the new token, then closes the old one.
+plugin does not wait for that. Just under 60 seconds before `exp` it closes
+the connection, refreshes, and opens a new one with the new token.
+
+**Close first, then open.** The repo's network layer keeps one adapter per
+remote peer and ignores a second one for the same peer, and the relay's peer
+ID does not change. A new connection opened beside the old one would be
+ignored, and the relay would be lost when the old one closed. The cost is a
+gap of about a second, every 15 minutes.
 
 ### N3. Open every note
 

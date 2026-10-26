@@ -1,13 +1,19 @@
-// Between the relay and the files: connect (V3), inbound (O4) and outbound
-// (O3) for notes the relay already has. New notes, renames, moves and
-// deletes are structure changes, and are not sent yet.
+// Between the relay and the files: connect (V3), inbound (O4), outbound (O3),
+// and the structure changes made in this vault (T1 to T3, this vault's side).
+// Following another device's renames, moves and deletes is not built yet.
 
 import * as A from "@automerge/automerge/slim";
 import type { AutomergeUrl, DocHandle, Repo, UrlHeads } from "@automerge/automerge-repo/slim";
 import { splicesBetween } from "../diff.ts";
 import { type Files, type NoteState, type NoteStore, sha256 } from "../notes.ts";
-import { noteText } from "../schema.ts";
-import { type Tree, walk } from "../tree.ts";
+import { FOLDER, NOTE, nameKey, noteText, validName, type FolderDoc } from "../schema.ts";
+import { type Tree, nameOf, parentOf, walk, within } from "../tree.ts";
+import { addEntry, collides, newFolder, newNote, removeEntry, renameEntry, type EntryType } from "./structure.ts";
+
+// Obsidian reports a folder's rename or delete as one event or many, in an
+// order it does not promise. Events this close together are handled as one
+// batch, folders first.
+export const EVENT_BATCH_MS = 50;
 
 // What the connect procedure will do, shown to the member before it runs.
 export interface Plan {
@@ -17,7 +23,7 @@ export interface Plan {
 	adopt: string[];
 	// The local file differs: kept under a new name, then written.
 	copy: string[];
-	// Local notes the relay does not have. Left where they are.
+	// Local notes the relay does not have: uploaded.
 	localOnly: string[];
 }
 
@@ -33,6 +39,11 @@ export interface SyncOptions {
 	today: () => string;
 }
 
+type StructureEvent =
+	| { kind: "create"; path: string }
+	| { kind: "delete"; path: string; folder: boolean }
+	| { kind: "rename"; from: string; to: string; folder: boolean };
+
 // `<name> (local copy <date>).md`, beside the original.
 export function copyName(path: string, date: string, n = 1): string {
 	const slash = path.lastIndexOf("/");
@@ -45,8 +56,19 @@ function sameHeads(a: readonly string[], b: readonly string[]): boolean {
 	return a.length === b.length && [...a].sort().join() === [...b].sort().join();
 }
 
+function depth(path: string): number {
+	return path.split("/").length;
+}
+
+// A path under `from`, moved to the same place under `to`.
+function moved(path: string, from: string, to: string): string {
+	return to + path.slice(from.length);
+}
+
+class Refused extends Error {}
+
 export class Sync {
-	// Paths the relay has changes for that are held back, and why.
+	// Notes not syncing, and why.
 	notSynced = new Map<string, string>();
 	// Paths in the relay's tree that are left out, and why.
 	skipped: string[] = [];
@@ -56,6 +78,8 @@ export class Sync {
 
 	private options: SyncOptions;
 	private tree: Tree | null = null;
+	// Every path a note is at, duplicates included, and each note's path.
+	private paths = new Map<string, string>();
 	private pathOf = new Map<string, string>();
 	private states = new Map<string, NoteState>();
 	private handles = new Map<string, DocHandle<unknown>>();
@@ -65,6 +89,13 @@ export class Sync {
 	// Whether the first walk since start has looked at every note's file.
 	private swept = false;
 	private walkAgain = false;
+	// Bumped by every structure change made here. A walk that began before
+	// one could still show the old paths, and is thrown away.
+	private structureVersion = 0;
+	private structureQueue: Promise<void> = Promise.resolve();
+	private structureBusy = 0;
+	private events: StructureEvent[] = [];
+	private eventTimer: ReturnType<typeof setTimeout> | null = null;
 	private busy = 0;
 	private stopped = false;
 
@@ -76,7 +107,7 @@ export class Sync {
 		return this.busy > 0;
 	}
 
-	// Notes here that the relay does not have. Nothing sends them yet.
+	// Notes here that the relay does not have yet.
 	unsent(): string[] {
 		if (!this.connected) return [];
 		return this.options.files.list().filter((path) => !this.states.has(path));
@@ -92,12 +123,14 @@ export class Sync {
 
 	stop() {
 		this.stopped = true;
+		if (this.eventTimer !== null) clearTimeout(this.eventTimer);
 	}
 
-	// Waits for every queued note, for tests and for a status that settles.
+	// Waits until nothing is queued, for tests and for a status that settles.
 	async idle() {
-		while (this.walking || this.queues.size > 0) {
-			await Promise.all([this.walking, ...this.queues.values()]);
+		while (this.walking || this.queues.size > 0 || this.eventTimer !== null || this.structureBusy > 0) {
+			if (this.eventTimer !== null) await new Promise((resolve) => setTimeout(resolve, EVENT_BATCH_MS));
+			await Promise.all([this.walking, this.structureQueue, ...this.queues.values()]);
 		}
 	}
 
@@ -109,23 +142,24 @@ export class Sync {
 			const found = await this.options.repo.find<unknown>(url as AutomergeUrl, {
 				allowableStates: ["ready", "unavailable"],
 			});
-			handle = this.handles.get(url);
-			if (!handle) {
-				handle = found;
-				this.handles.set(url, handle);
-				// An unavailable document can arrive later, when a peer has it.
-				// Its first change comes just before it turns ready, and
-				// whenReady gives up after a while, so each arrival is waited
-				// for afresh.
-				const arrived = (h: DocHandle<unknown>) => {
-					if (h.isReady()) this.changed(url);
-					else h.whenReady().then(() => this.changed(url), () => {});
-				};
-				handle.on("change", ({ handle: h }) => arrived(h));
-				arrived(handle);
-			}
+			handle = this.handles.get(url) ?? this.watch(found);
 		}
 		return handle.isReady() ? handle.doc() : null;
+	}
+
+	private watch(handle: DocHandle<unknown>): DocHandle<unknown> {
+		const url = handle.url;
+		this.handles.set(url, handle);
+		// An unavailable document can arrive later, when a peer has it. Its
+		// first change comes just before it turns ready, and whenReady gives
+		// up after a while, so each arrival is waited for afresh.
+		const arrived = (h: DocHandle<unknown>) => {
+			if (h.isReady()) this.changed(url);
+			else h.whenReady().then(() => this.changed(url), () => {});
+		};
+		handle.on("change", ({ handle: h }) => arrived(h));
+		arrived(handle);
+		return handle;
 	}
 
 	private changed(url: string) {
@@ -167,31 +201,54 @@ export class Sync {
 		this.busy++;
 		this.options.onStatus();
 		try {
+			// Never alongside a structure change: one half done would show.
+			await this.structureQueue;
+			const version = this.structureVersion;
 			const tree = await walk((url) => this.open(url), this.options.rootUrl);
+			if (this.structureVersion !== version) {
+				this.walkAgain = true;
+				return;
+			}
 			this.skipped = tree.skipped;
 			// The root is not available yet. Its handle calls back when it is.
 			if (!tree.folders.has("")) return;
-			this.tree = tree;
-			this.pathOf = new Map();
-			for (const [path, url] of tree.notes) this.pathOf.set(url, path);
-			await Promise.all([...tree.notes.values()].map((url) => this.open(url)));
+			this.useTree(tree);
+			await Promise.all([...this.paths.values()].map((url) => this.open(url)));
 			if (this.stopped || this.declined) return;
 			if (!this.connected) await this.connect(tree);
 			if (!this.connected) return;
+			this.finishMoves(tree);
 			// The first time, every note: a file edited while Obsidian was
 			// closed shows only in its hash. After that, only documents that
 			// moved on; file changes arrive as events.
-			if (this.swept) this.scheduleChanged(tree);
-			else for (const path of tree.notes.keys()) this.schedule(path);
+			if (this.swept) this.scheduleChanged();
+			else for (const path of this.paths.keys()) this.schedule(path);
+			if (!this.swept) this.uploadNew();
 			this.swept = true;
 		} finally {
 			this.busy--;
 		}
 	}
 
+	private useTree(tree: Tree) {
+		this.tree = tree;
+		this.paths = new Map(tree.notes);
+		for (const { path, url } of tree.duplicates) this.paths.set(path, url);
+		this.pathOf = new Map();
+		for (const [path, url] of tree.notes) this.pathOf.set(url, path);
+		// A note at two paths syncs at the one this vault has it at.
+		for (const state of this.states.values()) {
+			if (this.paths.get(state.path) === state.url) this.pathOf.set(state.url, state.path);
+		}
+		const local = new Set(this.options.files.list());
+		for (const path of this.notSynced.keys()) {
+			if (!this.paths.has(path) && !local.has(path)) this.notSynced.delete(path);
+		}
+	}
+
 	// Every note whose document has moved on since it was last written.
-	private scheduleChanged(tree: Tree) {
-		for (const [path, url] of tree.notes) {
+	private scheduleChanged() {
+		for (const [path, url] of this.paths) {
 			const state = this.states.get(path);
 			const handle = this.handles.get(url);
 			if (!state || !handle?.isReady() || !sameHeads(handle.heads(), state.syncedHeads)) this.schedule(path);
@@ -234,8 +291,7 @@ export class Sync {
 		this.connected = true;
 	}
 
-	// A file was saved, or an open note typed in. Only notes the relay
-	// already has are sent: a new note is a structure change.
+	// A file was saved, or an open note typed in.
 	fileChanged(path: string) {
 		if (this.stopped || !this.connected || !this.states.has(path)) return;
 		this.schedule(path);
@@ -269,8 +325,7 @@ export class Sync {
 	private async syncNote(path: string) {
 		if (!this.connected || this.stopped || !this.tree) return;
 		const { files } = this.options;
-		const url = this.tree.notes.get(path);
-		// An entry that went away. Deletes and moves are not followed yet.
+		const url = this.paths.get(path);
 		if (url === undefined) return;
 		const handle = this.handles.get(url);
 		if (!handle?.isReady()) return;
@@ -279,12 +334,16 @@ export class Sync {
 			this.notSynced.set(path, "Not a note SCN Sync can read.");
 			return;
 		}
+		const state = this.states.get(path);
 		const elsewhere = [...this.states.values()].find((s) => s.url === url && s.path !== path);
 		if (elsewhere) {
-			this.notSynced.set(path, `Moved from ${elsewhere.path} on the relay. Moves are not followed yet.`);
+			// This vault has the note at another path: a move in progress, or
+			// one made on another device, which is not followed yet.
+			if (!state && this.paths.get(elsewhere.path) !== url) {
+				this.notSynced.set(path, `Moved from ${elsewhere.path} on another device. Moves are not followed yet.`);
+			}
 			return;
 		}
-		const state = this.states.get(path);
 		const local = await files.read(path);
 
 		if (!state) {
@@ -296,7 +355,7 @@ export class Sync {
 			return;
 		}
 		if (local === null) {
-			this.notSynced.set(path, "Deleted here. Deletes are not followed yet.");
+			this.notSynced.set(path, "Deleted here while SCN Sync was not running. Not sent yet.");
 			return;
 		}
 		if ((await sha256(local)) === state.syncedHash) {
@@ -347,8 +406,309 @@ export class Sync {
 	}
 
 	private async record(path: string, url: string, text: string, heads: string[]) {
-		const state: NoteState = { path, url, syncedHash: await sha256(text), syncedHeads: heads, offlineEdit: false };
+		const state: NoteState = {
+			path,
+			url,
+			syncedHash: await sha256(text),
+			syncedHeads: heads,
+			offlineEdit: false,
+			movedFrom: this.states.get(path)?.movedFrom,
+		};
 		this.states.set(path, state);
 		await this.options.store.put(state);
+	}
+
+	// --- Structure changes made in this vault ------------------------------
+
+	created(path: string) {
+		this.queueEvent({ kind: "create", path });
+	}
+
+	deleted(path: string, folder: boolean) {
+		this.queueEvent({ kind: "delete", path, folder });
+	}
+
+	renamed(from: string, to: string, folder: boolean) {
+		this.queueEvent({ kind: "rename", from, to, folder });
+	}
+
+	private queueEvent(event: StructureEvent) {
+		if (this.stopped) return;
+		this.events.push(event);
+		this.eventTimer ??= setTimeout(() => {
+			this.eventTimer = null;
+			const batch = this.events;
+			this.events = [];
+			void this.structure(() => this.applyEvents(batch));
+		}, EVENT_BATCH_MS);
+	}
+
+	// Structure changes run one at a time, apart from content, each after the
+	// content tasks already queued for the paths it touches.
+	private structure(task: () => Promise<void>): Promise<void> {
+		this.structureBusy++;
+		this.busy++;
+		const next = this.structureQueue
+			.then(task)
+			.catch((e) => console.error("SCN Sync: a structure change failed", e))
+			.finally(() => {
+				this.structureBusy--;
+				this.busy--;
+				this.options.onStatus();
+			});
+		this.structureQueue = next;
+		return next;
+	}
+
+	private async settle(predicate: (path: string) => boolean) {
+		await Promise.all([...this.queues].filter(([path]) => predicate(path)).map(([, queue]) => queue));
+	}
+
+	private async applyEvents(batch: StructureEvent[]) {
+		if (!this.connected || !this.tree || this.stopped) return;
+		const { files } = this.options;
+		const byDepth = (a: string, b: string) => depth(a) - depth(b);
+
+		// Folders first, shallowest first. What a folder event covers, its
+		// children's events do not do again.
+		const covered: Array<{ from: string; to: string | null }> = [];
+		const isCovered = (from: string, to: string | null) =>
+			covered.some((c) => within(from, c.from) && (c.to === null ? to === null : to === moved(from, c.from, c.to)));
+
+		for (const event of batch.filter((e) => e.kind === "rename" && e.folder).sort((a, b) => byDepth((a as { from: string }).from, (b as { from: string }).from))) {
+			const { from, to } = event as { from: string; to: string };
+			if (isCovered(from, to)) continue;
+			if (await this.moveFolder(from, to)) covered.push({ from, to });
+		}
+		for (const event of batch.filter((e) => e.kind === "delete" && e.folder).sort((a, b) => byDepth((a as { path: string }).path, (b as { path: string }).path))) {
+			const { path } = event as { path: string };
+			if (isCovered(path, null)) continue;
+			if (await this.removeFolder(path)) covered.push({ from: path, to: null });
+		}
+		for (const event of batch) {
+			if (event.kind === "rename" && !event.folder) {
+				if (isCovered(event.from, event.to)) continue;
+				const kept = files.synced(event.to);
+				if (this.states.has(event.from) && kept) await this.moveNote(event.from, event.to);
+				else if (this.states.has(event.from)) await this.removeNote(event.from);
+			} else if (event.kind === "delete" && !event.folder) {
+				if (isCovered(event.path, null)) continue;
+				if (this.states.has(event.path)) await this.removeNote(event.path);
+			}
+		}
+		// Creates, and anything renamed into what syncs: every note here the
+		// relay does not have.
+		await this.createNotes(this.newPaths());
+	}
+
+	// Local notes with no state and no entry: new, so uploaded.
+	private newPaths(): string[] {
+		return this.unsent().filter((path) => !this.paths.has(path));
+	}
+
+	private uploadNew() {
+		void this.structure(() => this.createNotes(this.newPaths()));
+	}
+
+	private folderHandle(path: string): DocHandle<FolderDoc> | null {
+		const url = this.tree?.folders.get(path);
+		const handle = url ? this.handles.get(url) : undefined;
+		return handle?.isReady() ? (handle as DocHandle<FolderDoc>) : null;
+	}
+
+	// The folder document at `path`, made with its parents if need be.
+	private async ensureFolder(path: string): Promise<DocHandle<FolderDoc>> {
+		const existing = this.folderHandle(path);
+		if (existing) return existing;
+		// On the relay but not loaded: making another would duplicate it.
+		if (this.tree?.folders.has(path)) throw new Refused("Its folder is not available from SCN yet.");
+		const name = nameOf(path);
+		if (!validName(name)) throw new Refused(`The folder name "${name}" is not synced.`);
+		const parent = await this.ensureFolder(parentOf(path));
+		if (collides(parent.doc(), name, null)) throw new Refused(`A note or folder named "${name}" is already on SCN.`);
+		const handle = this.options.repo.create(newFolder(name)) as DocHandle<unknown>;
+		this.watch(handle);
+		parent.change((doc) => addEntry(doc, name, FOLDER, handle.url));
+		this.tree!.folders.set(path, handle.url);
+		this.structureVersion++;
+		return handle as DocHandle<FolderDoc>;
+	}
+
+	// O3, a new file. Note documents first, then their entries, one change
+	// per folder however many notes land in it.
+	private async createNotes(paths: string[]) {
+		if (paths.length === 0) return;
+		const { files, repo } = this.options;
+		const byFolder = new Map<string, Array<{ path: string; text: string; handle: DocHandle<unknown> }>>();
+		for (const path of paths) {
+			const name = nameOf(path);
+			try {
+				if (!path.split("/").every(validName)) throw new Refused("Its name is not synced.");
+				const folder = await this.ensureFolder(parentOf(path));
+				const siblings = byFolder.get(parentOf(path)) ?? [];
+				if (collides(folder.doc(), name, null) || siblings.some((s) => nameKey(nameOf(s.path)) === nameKey(name))) {
+					throw new Refused("A note with this name is already on SCN.");
+				}
+				const text = await files.read(path);
+				if (text === null) continue;
+				const handle = repo.create(newNote(name, text)) as DocHandle<unknown>;
+				this.watch(handle);
+				byFolder.set(parentOf(path), [...siblings, { path, text, handle }]);
+			} catch (e) {
+				if (!(e instanceof Refused)) throw e;
+				this.notSynced.set(path, e.message);
+			}
+		}
+		for (const [folderPath, notes] of byFolder) {
+			const folder = this.folderHandle(folderPath)!;
+			folder.change((doc) => {
+				for (const { path, handle } of notes) addEntry(doc, nameOf(path), NOTE, handle.url);
+			});
+			for (const { path, text, handle } of notes) {
+				this.paths.set(path, handle.url);
+				this.pathOf.set(handle.url, path);
+				this.tree!.notes.set(path, handle.url);
+				await this.record(path, handle.url, text, handle.heads());
+				this.notSynced.delete(path);
+				// An edit saved while it was being created.
+				this.schedule(path);
+			}
+		}
+		this.structureVersion++;
+	}
+
+	// T1 within a folder, T2 between folders: add to the destination first,
+	// then remove from the source. `beforeAdd` runs before the add.
+	private async moveEntry(url: string, type: EntryType, from: string, to: string, beforeAdd: () => Promise<void>): Promise<boolean> {
+		const name = nameOf(to);
+		if (!validName(name)) throw new Refused("Its new name is not synced.");
+		const source = this.folderHandle(parentOf(from));
+		if (!source) return false;
+		this.structureVersion++;
+		if (parentOf(from) === parentOf(to)) {
+			if (collides(source.doc(), name, url)) throw new Refused("A note or folder with this name is already on SCN.");
+			await beforeAdd();
+			source.change((doc) => renameEntry(doc, url, name));
+			return true;
+		}
+		const destination = await this.ensureFolder(parentOf(to));
+		if (collides(destination.doc(), name, url)) throw new Refused("A note or folder with this name is already on SCN.");
+		await beforeAdd();
+		destination.change((doc) => addEntry(doc, name, type, url));
+		source.change((doc) => removeEntry(doc, url));
+		return true;
+	}
+
+	private async moveNote(from: string, to: string) {
+		const state = this.states.get(from)!;
+		await this.settle((path) => path === from || path === to);
+		try {
+			const across = parentOf(from) !== parentOf(to);
+			const done = await this.moveEntry(state.url, NOTE, from, to, async () => {
+				// The state goes first, marked, so a move cut short is finished
+				// at the next start rather than left at two paths.
+				await this.moveState(from, to, across ? from : undefined);
+			});
+			if (!done) return;
+			if (across) await this.moveState(to, to, undefined);
+			this.paths.delete(from);
+			this.paths.set(to, state.url);
+			this.pathOf.set(state.url, to);
+		} catch (e) {
+			if (!(e instanceof Refused)) throw e;
+			this.notSynced.set(to, e.message);
+		}
+	}
+
+	private async moveState(from: string, to: string, movedFrom: string | undefined) {
+		const state = this.states.get(from);
+		if (!state) return;
+		const next = { ...state, path: to, movedFrom };
+		this.states.delete(from);
+		this.states.set(to, next);
+		if (from !== to) await this.options.store.delete(from);
+		await this.options.store.put(next);
+	}
+
+	// A folder's entry moves, and every note under it with it. No note
+	// document changes.
+	private async moveFolder(from: string, to: string): Promise<boolean> {
+		const url = this.tree?.folders.get(from);
+		if (!url || from === "") return false;
+		await this.settle((path) => within(path, from) || within(path, to));
+		try {
+			const done = await this.moveEntry(url, FOLDER, from, to, async () => {
+				for (const path of [...this.states.keys()].filter((p) => within(p, from))) {
+					await this.moveState(path, moved(path, from, to), undefined);
+				}
+			});
+			if (!done) return false;
+		} catch (e) {
+			if (!(e instanceof Refused)) throw e;
+			this.notSynced.set(to, e.message);
+			return false;
+		}
+		const tree = this.tree!;
+		for (const [path, folderUrl] of [...tree.folders]) {
+			if (!within(path, from)) continue;
+			tree.folders.delete(path);
+			tree.folders.set(moved(path, from, to), folderUrl);
+		}
+		for (const [path, noteUrl] of [...this.paths]) {
+			if (!within(path, from)) continue;
+			this.paths.delete(path);
+			this.paths.set(moved(path, from, to), noteUrl);
+			this.pathOf.set(noteUrl, moved(path, from, to));
+		}
+		return true;
+	}
+
+	// T3, this vault's side. The note's document stays on the relay, and
+	// nothing leads to it.
+	private async removeNote(path: string) {
+		const state = this.states.get(path)!;
+		await this.settle((p) => p === path);
+		const folder = this.folderHandle(parentOf(path));
+		this.structureVersion++;
+		folder?.change((doc) => removeEntry(doc, state.url));
+		await this.dropState(path);
+	}
+
+	private async removeFolder(path: string): Promise<boolean> {
+		const url = this.tree?.folders.get(path);
+		if (!url || path === "") return false;
+		await this.settle((p) => within(p, path));
+		const parent = this.folderHandle(parentOf(path));
+		this.structureVersion++;
+		parent?.change((doc) => removeEntry(doc, url));
+		for (const p of [...this.states.keys()].filter((p) => within(p, path))) await this.dropState(p);
+		for (const p of [...this.tree!.folders.keys()].filter((p) => within(p, path))) this.tree!.folders.delete(p);
+		return true;
+	}
+
+	private async dropState(path: string) {
+		const state = this.states.get(path);
+		this.states.delete(path);
+		this.paths.delete(path);
+		this.notSynced.delete(path);
+		if (state && this.pathOf.get(state.url) === path) this.pathOf.delete(state.url);
+		await this.options.store.delete(path);
+	}
+
+	// T2. A move cut short between its add and its remove: this vault has the
+	// note at its new path, and the old entry is still there.
+	private finishMoves(tree: Tree) {
+		for (const state of this.states.values()) {
+			const from = state.movedFrom;
+			if (from === undefined) continue;
+			const still = tree.notes.get(from) === state.url || tree.duplicates.some((d) => d.path === from && d.url === state.url);
+			void this.structure(async () => {
+				if (still) {
+					this.structureVersion++;
+					this.folderHandle(parentOf(from))?.change((doc) => removeEntry(doc, state.url));
+				}
+				await this.moveState(state.path, state.path, undefined);
+			});
+		}
 	}
 }

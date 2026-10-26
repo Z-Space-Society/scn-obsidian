@@ -2,7 +2,7 @@ import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64"
 import { initializeBase64Wasm } from "@automerge/automerge/slim";
 import { Repo } from "@automerge/automerge-repo/slim";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
-import { Notice, Plugin, TFile, requestUrl } from "obsidian";
+import { Notice, Plugin, TFile, TFolder, requestUrl } from "obsidian";
 import {
 	PROTOCOL_ACTION,
 	SignInError,
@@ -136,10 +136,26 @@ export default class ScnSync extends Plugin {
 		// socket start once the workspace is up.
 		this.app.workspace.onLayoutReady(() => {
 			// Registered here, which skips the create event Obsidian fires for
-			// every existing file at load. For now they only move the status.
-			for (const name of ["create", "delete", "rename"] as const) {
-				this.registerEvent(this.app.vault.on(name as "create", () => this.showStatus()));
-			}
+			// every existing file at load.
+			const { vault } = this.app;
+			this.registerEvent(
+				vault.on("create", (file) => {
+					if (file instanceof TFile) this.sync?.created(file.path);
+					this.showStatus();
+				}),
+			);
+			this.registerEvent(
+				vault.on("delete", (file) => {
+					this.sync?.deleted(file.path, file instanceof TFolder);
+					this.showStatus();
+				}),
+			);
+			this.registerEvent(
+				vault.on("rename", (file, oldPath) => {
+					this.sync?.renamed(oldPath, file.path, file instanceof TFolder);
+					this.showStatus();
+				}),
+			);
 			this.registerEvent(
 				this.app.vault.on("modify", (file) => {
 					if (file instanceof TFile && this.files.synced(file.path)) this.sync?.fileChanged(file.path);

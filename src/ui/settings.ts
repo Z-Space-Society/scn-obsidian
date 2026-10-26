@@ -1,6 +1,7 @@
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type ScnSync from "../main.ts";
 import { SetupModal, VaultPickModal } from "./setup.ts";
+import { renderStatus } from "./status.ts";
 
 // Every step of setup is here too, so a dismissed modal loses nothing.
 export class ScnSyncSettingTab extends PluginSettingTab {
@@ -59,19 +60,7 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 
 		if (settings.vaultUrl) {
 			new Setting(containerEl).setName("Status").setHeading();
-			new Setting(containerEl)
-				.setName(plugin.statusText())
-				.setDesc("Edits, new notes, renames, moves and deletes made here reach SCN. Renames, moves and deletes made elsewhere are not followed here yet.");
-			const { sync } = plugin;
-			for (const [path, reason] of sync?.notSynced ?? []) {
-				new Setting(containerEl).setName(path).setDesc(reason);
-			}
-			for (const path of sync?.unsent() ?? []) {
-				new Setting(containerEl).setName(path).setDesc("Only here so far. Waiting to upload.");
-			}
-			for (const line of sync?.skipped ?? []) {
-				new Setting(containerEl).setName("Left out").setDesc(line);
-			}
+			renderStatus(containerEl, plugin);
 		}
 
 		new Setting(containerEl).setName("Advanced").setHeading();

@@ -16,6 +16,11 @@ export interface Tree {
 	folders: Map<string, string>;
 	// Paths left out, and why, to be reported.
 	skipped: string[];
+	// Folders the relay could not supply. A tree with any is missing notes,
+	// so nothing may be taken as deleted from it.
+	unavailable: string[];
+	// Entries whose names collide with one that keeps the path (T4).
+	collisions: Array<{ folder: string; name: string; type: string; url: string }>;
 }
 
 export function join(folder: string, name: string): string {
@@ -37,7 +42,7 @@ export function within(path: string, folder: string): boolean {
 }
 
 export async function walk(open: Open, rootUrl: string): Promise<Tree> {
-	const tree: Tree = { notes: new Map(), duplicates: [], folders: new Map(), skipped: [] };
+	const tree: Tree = { notes: new Map(), duplicates: [], folders: new Map(), skipped: [], unavailable: [], collisions: [] };
 	const found: Array<{ path: string; url: string }> = [];
 
 	// A folder is walked at every path it is found at, so one being moved is
@@ -45,6 +50,7 @@ export async function walk(open: Open, rootUrl: string): Promise<Tree> {
 	async function visit(path: string, url: string, ancestors: Set<string>) {
 		const doc = await open(url);
 		if (doc === null) {
+			tree.unavailable.push(path);
 			tree.skipped.push(`${path || "the vault root"}: not available from the relay`);
 			return;
 		}
@@ -53,8 +59,9 @@ export async function walk(open: Open, rootUrl: string): Promise<Tree> {
 			return;
 		}
 		tree.folders.set(path, url);
-		const { entries, skipped } = entriesOf(doc);
+		const { entries, skipped, collisions } = entriesOf(doc);
 		for (const entry of skipped) tree.skipped.push(`${join(path, entry.name)}: name not usable here`);
+		for (const entry of collisions) tree.collisions.push({ folder: path, ...entry });
 		const inside = new Set(ancestors).add(url);
 		const subfolders: Promise<void>[] = [];
 		for (const entry of entries) {

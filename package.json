@@ -6,7 +6,7 @@
 	"scripts": {
 		"build": "tsc --noEmit && node esbuild.config.mjs production",
 		"dev": "node esbuild.config.mjs",
-		"test": "node --test test/"
+		"test": "node --test --test-force-exit test/"
 	},
 	"devDependencies": {
 		"@types/node": "26.6.5",

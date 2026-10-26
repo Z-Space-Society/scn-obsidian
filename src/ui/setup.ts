@@ -215,3 +215,62 @@ export class ConnectModal extends Modal {
 		this.finish(false);
 	}
 }
+
+// O6. Most of the vault's notes are missing at startup. A vault folder that
+// moved or is not mounted must not empty SCN, so nothing is sent until the
+// member says. Closing the modal downloads them again, which loses nothing.
+export class DeleteGuardModal extends Modal {
+	private paths: string[];
+	private vaultName: string;
+	private answer: (remove: boolean) => void = () => {};
+	private answered = false;
+
+	constructor(app: App, paths: string[], vaultName: string) {
+		super(app);
+		this.paths = paths;
+		this.vaultName = vaultName;
+	}
+
+	ask(): Promise<boolean> {
+		return new Promise((resolve) => {
+			this.answer = resolve;
+			this.open();
+		});
+	}
+
+	private finish(remove: boolean) {
+		if (this.answered) return;
+		this.answered = true;
+		this.answer(remove);
+		this.close();
+	}
+
+	onOpen() {
+		const { contentEl, paths } = this;
+		this.setTitle(`${count(paths.length, "note is", "notes are")} missing here`);
+		contentEl.createEl("p", {
+			text: `They were in step with ${this.vaultName} on SCN when SCN Sync last ran, and nothing has been sent about them yet.`,
+		});
+		contentEl.createEl("p", {
+			text: "If this vault's folder moved, or is not all there yet, download them again. If you deleted them, delete them on SCN too.",
+		});
+		new Setting(contentEl)
+			.addButton((b) =>
+				b
+					.setButtonText("Delete on SCN")
+					.setWarning()
+					.onClick(() => this.finish(true)),
+			)
+			.addButton((b) =>
+				b
+					.setButtonText("Download again")
+					.setCta()
+					.onClick(() => this.finish(false)),
+			);
+	}
+
+	onClose() {
+		this.contentEl.empty();
+		this.finish(false);
+	}
+}

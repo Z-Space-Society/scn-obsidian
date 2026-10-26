@@ -70,13 +70,50 @@ export class VaultFiles implements Files {
 			return wrote;
 		}
 		if (expected !== undefined && expected !== null) return false;
+		await this.makeParents(path);
+		await vault.create(path, text);
+		return true;
+	}
+
+	private async makeParents(path: string) {
+		const { vault } = this.app;
 		const segments = path.split("/").slice(0, -1);
 		for (let i = 1; i <= segments.length; i++) {
 			const folder = segments.slice(0, i).join("/");
 			if (!vault.getFolderByPath(folder)) await vault.createFolder(folder);
 		}
-		await vault.create(path, text);
+	}
+
+	// vault.rename, not fileManager.renameFile: the second rewrites links in
+	// other notes, and two devices following one rename would both do it.
+	async rename(from: string, to: string): Promise<boolean> {
+		const { vault } = this.app;
+		const item = vault.getAbstractFileByPath(from);
+		if (!item || vault.getAbstractFileByPath(to)) return false;
+		await this.makeParents(to);
+		await vault.rename(item, to);
 		return true;
+	}
+
+	async trash(path: string) {
+		const file = this.app.vault.getFileByPath(path);
+		if (file) await this.app.fileManager.trashFile(file);
+	}
+
+	hasFolder(path: string): boolean {
+		return this.app.vault.getFolderByPath(path) !== null;
+	}
+
+	// Read from disk: Obsidian's own list of a folder's children catches up
+	// with a file just trashed only later, so the folder would look full.
+	// Removed only once seen empty. A non-recursive rmdir is a plain file
+	// delete on desktop, which a folder refuses (EISDIR).
+	async removeFolderIfEmpty(path: string) {
+		const { adapter } = this.app.vault;
+		if (path === "" || !(await adapter.exists(path))) return;
+		const listed = await adapter.list(path);
+		if (listed.files.length > 0 || listed.folders.length > 0) return;
+		await adapter.rmdir(path, true);
 	}
 
 	list(): string[] {

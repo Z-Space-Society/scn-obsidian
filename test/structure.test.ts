@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { addEntry } from "../src/sync/structure.ts";
-import { A, eventually } from "./helpers.ts";
-import { connected, plugin, reconnect, relayView, stopAll } from "./setup.ts";
+import { generateAutomergeUrl } from "@automerge/automerge-repo/slim";
+import { conflictName } from "../src/schema.ts";
+import { addEntry, removeEntry, renameEntry } from "../src/sync/structure.ts";
+import { A, eventually, note } from "./helpers.ts";
+import { connected, plugin, reconnect, relayView, relayWithNotes, stopAll, textOf } from "./setup.ts";
 
 afterEach(stopAll);
 
@@ -201,5 +203,154 @@ describe("a create event", () => {
 		await setup.sync.idle();
 		const view = await relayView(setup);
 		assert.equal(Object.keys(view.urls).length, 3);
+	});
+});
+
+describe("a change made elsewhere", () => {
+	it("renames the file in place, and sends nothing back", async () => {
+		const setup = await connected();
+		setup.root.change((doc: any) => renameEntry(doc, setup.hello.url, "greeting.md"));
+		await eventually(() => setup.files.files.get("greeting.md") === "# Hello\n\nFrom Claude.\n" && !setup.files.files.has("hello.md"), "the rename here");
+		await setup.sync.idle();
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		assert.equal(setup.store.records.get("greeting.md")?.url, setup.hello.url);
+		const view = await relayView(setup);
+		assert.deepEqual(Object.keys(view.urls).sort(), ["Art Projects/Personal Heat Map - Interface Option 2.md", "Art Projects/Personal Heat Map.md", "greeting.md"]);
+		assert.deepEqual(setup.sync.unsent(), []);
+	});
+
+	it("moves the file once the old entry goes, and not before", async () => {
+		const setup = await connected();
+		setup.art.change((doc: any) => addEntry(doc, "hello.md", "md", setup.hello.url));
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		await setup.sync.idle();
+		assert.equal(setup.files.files.has("hello.md"), true);
+		assert.equal(setup.files.files.has("Art Projects/hello.md"), false);
+		setup.root.change((doc: any) => removeEntry(doc, setup.hello.url));
+		await eventually(() => setup.files.files.has("Art Projects/hello.md") && !setup.files.files.has("hello.md"), "the move here");
+		await setup.sync.idle();
+		const view = await relayView(setup);
+		assert.equal(view.urls["Art Projects/hello.md"], setup.hello.url);
+		assert.deepEqual(view.duplicates, []);
+	});
+
+	it("moves a renamed folder as one, other files with it", async () => {
+		const setup = await connected();
+		setup.files.files.set("Art Projects/sketch.png", "png");
+		setup.root.change((doc: any) => renameEntry(doc, setup.art.url, "Art"));
+		await eventually(() => setup.files.files.get("Art/sketch.png") === "png", "the folder here");
+		await setup.sync.idle();
+		assert.equal([...setup.files.files.keys()].some((p) => p.startsWith("Art Projects/")), false);
+		assert.equal(setup.files.files.get("Art/Personal Heat Map.md"), "---\ntags: [art]\n---\nHeat map\r\n");
+		const view = await relayView(setup);
+		assert.equal(view.folders.Art, setup.art.url);
+		assert.equal(Object.keys(view.folders).length, 2);
+	});
+
+	it("deletes the file to the trash", async () => {
+		const setup = await connected();
+		setup.root.change((doc: any) => removeEntry(doc, setup.hello.url));
+		await eventually(() => !setup.files.files.has("hello.md"), "the delete here");
+		await setup.sync.idle();
+		assert.deepEqual(setup.files.trashed, ["hello.md"]);
+		assert.equal(setup.store.records.has("hello.md"), false);
+		assert.equal("hello.md" in (await relayView(setup)).urls, false);
+	});
+
+	it("removes a deleted folder, unless something else is in it", async () => {
+		for (const kept of [false, true]) {
+			const setup = await connected();
+			if (kept) setup.files.files.set("Art Projects/sketch.png", "png");
+			setup.root.change((doc: any) => removeEntry(doc, setup.art.url));
+			await eventually(() => setup.files.list().length === 1, "the notes gone");
+			await setup.sync.idle();
+			assert.equal(setup.files.hasFolder("Art Projects"), kept);
+			stopAll();
+		}
+	});
+
+	it("removes a folder deleted after its notes went", async () => {
+		const setup = await connected();
+		for (const url of [setup.heat.url, setup.option.url]) setup.art.change((doc: any) => removeEntry(doc, url));
+		await eventually(() => setup.files.list().length === 1, "the notes gone");
+		await setup.sync.idle();
+		assert.equal(setup.files.hasFolder("Art Projects"), true);
+		setup.root.change((doc: any) => removeEntry(doc, setup.art.url));
+		await eventually(() => !setup.files.hasFolder("Art Projects"), "the empty folder gone");
+	});
+
+	it("deletes nothing while a folder is unavailable", async () => {
+		const setup = await connected();
+		setup.root.change((doc: any) => {
+			removeEntry(doc, setup.hello.url);
+			addEntry(doc, "Elsewhere", "folder", generateAutomergeUrl());
+		});
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		await setup.sync.idle();
+		assert.equal(setup.files.files.has("hello.md"), true);
+		assert.equal(setup.store.records.has("hello.md"), true);
+	});
+});
+
+describe("two notes at one path", () => {
+	it("are given the same conflict name by every device", async () => {
+		const setup = relayWithNotes();
+		const other = note(setup.relay, "Hello.md", "Another hello\n");
+		setup.root.change((doc: any) => addEntry(doc, "Hello.md", "md", other.url));
+		const [loser, loserName] = other.url < setup.hello.url ? [setup.hello, "hello.md"] : [other, "Hello.md"];
+		const conflict = conflictName(loserName, "md", loser.url);
+		const first = plugin(setup);
+		const second = plugin(setup, { network: reconnect(setup) });
+		await Promise.all([first.sync.start(), second.sync.start()]);
+		for (const { files } of [first, second]) {
+			await eventually(() => files.files.get(conflict) === textOf(loser), "the conflict copy");
+		}
+		await relayHas({ ...setup, ...first }, (view) => view.urls[conflict] === loser.url, "the rename on the relay");
+		await Promise.all([first.sync.idle(), second.sync.idle()]);
+		assert.equal(((setup.root.doc() as any).docs as unknown[]).length, 3);
+	});
+
+	it("renames the one held here and downloads the other", async () => {
+		const setup = await connected();
+		let other;
+		do other = note(setup.relay, "Hello.md", "Another hello\n");
+		while (!(other.url < setup.hello.url));
+		setup.files.files.set("hello.md", "# Hello\n\nFrom Claude, edited here.\n");
+		setup.sync.fileChanged("hello.md");
+		await eventually(() => textOf(setup.hello) === "# Hello\n\nFrom Claude, edited here.\n", "the edit sent");
+		setup.root.change((doc: any) => addEntry(doc, "Hello.md", "md", other.url));
+		const conflict = conflictName("hello.md", "md", setup.hello.url);
+		await eventually(
+			() => setup.files.files.get(conflict) === "# Hello\n\nFrom Claude, edited here.\n" && setup.files.files.get("Hello.md") === "Another hello\n",
+			"both notes here",
+		);
+		assert.equal(textOf(other), "Another hello\n");
+		assert.equal(textOf(setup.hello), "# Hello\n\nFrom Claude, edited here.\n");
+	});
+});
+
+describe("a delete made elsewhere against an edit here", () => {
+	it("puts the entry back when the edit is not sent yet", async () => {
+		const setup = await connected();
+		// Saved, with no event yet.
+		setup.files.files.set("hello.md", "# Hello\n\nKeep me.\n");
+		setup.root.change((doc: any) => removeEntry(doc, setup.hello.url));
+		await relayHas(setup, (view) => view.urls["hello.md"] === setup.hello.url && view.notes["hello.md"] === "# Hello\n\nKeep me.\n", "the note back");
+		assert.equal(setup.files.files.get("hello.md"), "# Hello\n\nKeep me.\n");
+	});
+
+	it("puts the entry back after an edit made offline", async () => {
+		const setup = relayWithNotes();
+		const local = plugin(setup, { online: () => false });
+		await local.sync.start();
+		await local.sync.idle();
+		local.files.files.set("hello.md", "# Hello\n\nWritten offline.\n");
+		local.sync.fileChanged("hello.md");
+		await eventually(() => local.store.records.get("hello.md")?.offlineEdit === true, "the offline mark");
+		setup.root.change((doc: any) => removeEntry(doc, setup.hello.url));
+		await relayHas({ ...setup, ...local }, (view) => view.urls["hello.md"] === setup.hello.url, "the note back");
+		await local.sync.idle();
+		assert.equal(local.files.files.get("hello.md"), "# Hello\n\nWritten offline.\n");
+		assert.deepEqual(local.files.trashed, []);
 	});
 });

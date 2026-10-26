@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { Repo } from "@automerge/automerge-repo/slim";
+import { Repo, generateAutomergeUrl } from "@automerge/automerge-repo/slim";
 import { MemoryFiles, MemoryNoteStore } from "../src/notes.ts";
-import { Sync, copyName } from "../src/sync/sync.ts";
-import { eventually, note } from "./helpers.ts";
-import { TODAY, append, connected, plugin, relayWithNotes, running, stopAll, textOf } from "./setup.ts";
+import { addEntry } from "../src/sync/structure.ts";
+import { Sync, UNAVAILABLE, copyName } from "../src/sync/sync.ts";
+import { A, eventually, note } from "./helpers.ts";
+import { TODAY, append, connected, plugin, reconnect, relayView, relayWithNotes, running, stopAll, textOf } from "./setup.ts";
 
 afterEach(stopAll);
 
@@ -88,6 +89,43 @@ describe("inbound", () => {
 	});
 });
 
+describe("a change that arrives while a note is written", () => {
+	it("is written too, not recorded as already there", async () => {
+		const setup = await connected();
+		const local = await setup.repo.find<unknown>(setup.hello.url);
+		let armed = true;
+		const read = setup.files.read.bind(setup.files);
+		setup.files.read = async (path) => {
+			const text = await read(path);
+			if (armed && path === "hello.md") {
+				armed = false;
+				local.change((doc: any) => A.splice(doc, ["content"], 0, 0, "Arrived mid-read.\n"));
+			}
+			return text;
+		};
+		append(setup.hello, "From the relay.\n");
+		await eventually(
+			() => setup.files.files.get("hello.md") === "Arrived mid-read.\n# Hello\n\nFrom Claude.\nFrom the relay.\n",
+			"both changes in the file",
+		);
+	});
+
+	it("is repaired at the next start when it was recorded as written", async () => {
+		const first = await connected();
+		first.sync.stop();
+		append(first.hello, "Never written here.\n");
+		const record = first.store.records.get("hello.md")!;
+		// What the bug left: the file's old text, recorded at the new version.
+		first.store.records.set("hello.md", { ...record, syncedHeads: first.hello.heads() });
+		const second = plugin(first, { files: first.files, store: first.store, network: reconnect(first) });
+		await second.sync.start();
+		await eventually(
+			() => first.files.files.get("hello.md") === "# Hello\n\nFrom Claude.\nNever written here.\n",
+			"the document's text in the file",
+		);
+	});
+});
+
 describe("outbound", () => {
 	it("sends an edit made here to the relay", async () => {
 		const { sync, files, hello } = await connected();
@@ -165,6 +203,8 @@ describe("starting offline", () => {
 			files,
 			store: new MemoryNoteStore(),
 			confirm: async () => true,
+			confirmDeletes: async () => false,
+			online: () => false,
 			onStatus: () => {},
 			today: () => TODAY,
 		});
@@ -204,5 +244,82 @@ describe("copy names", () => {
 	it("sits beside the original", () => {
 		assert.equal(copyName("a/b/Note.md", TODAY), "a/b/Note (local copy 2026-10-24).md");
 		assert.equal(copyName("Note.md", TODAY, 2), "Note (local copy 2026-10-24 2).md");
+	});
+});
+
+describe("startup reconciliation", () => {
+	it("sends a delete made while the plugin was not running", async () => {
+		const first = await connected();
+		first.sync.stop();
+		first.files.files.delete("hello.md");
+		const second = plugin(first, { files: first.files, store: first.store, network: reconnect(first) });
+		await second.sync.start();
+		await eventually(async () => !("hello.md" in (await relayView(first)).urls), "the entry gone");
+		await second.sync.idle();
+		assert.equal(first.files.files.has("hello.md"), false);
+		assert.equal(first.store.records.has("hello.md"), false);
+	});
+
+	for (const remove of [false, true]) {
+		it(`asks before sending most of the vault as deleted, and ${remove ? "deletes" : "downloads again"} on the answer`, async () => {
+			const setup = relayWithNotes();
+			const extra = Array.from({ length: 22 }, (_, i) => note(setup.relay, `note ${i}.md`, `note ${i}\n`));
+			setup.root.change((doc: any) => extra.forEach((h, i) => addEntry(doc, `note ${i}.md`, "md", h.url)));
+			const first = plugin(setup);
+			await first.sync.start();
+			await first.sync.idle();
+			assert.equal(first.files.files.size, 25);
+			first.sync.stop();
+			first.files.files.clear();
+
+			const asked: string[][] = [];
+			const second = plugin(setup, {
+				files: first.files,
+				store: first.store,
+				network: reconnect(setup),
+				confirmDeletes: async (paths) => (asked.push(paths), remove),
+			});
+			await second.sync.start();
+			await second.sync.idle();
+			assert.equal(asked.length, 1);
+			assert.equal(asked[0].length, 25);
+			const view = await relayView(setup);
+			if (remove) {
+				await eventually(async () => Object.keys((await relayView(setup)).urls).length === 0, "the entries gone");
+				assert.equal(first.files.files.size, 0);
+			} else {
+				await eventually(() => first.files.files.size === 25, "the notes downloaded again");
+				assert.equal(Object.keys(view.urls).length, 25);
+			}
+		});
+	}
+});
+
+describe("a store whose documents were lost", () => {
+	it("keeps the local version as a copy when its base is gone", async () => {
+		const first = await connected();
+		first.sync.stop();
+		first.files.files.set("hello.md", "Edited while the base was lost.\n");
+		const record = first.store.records.get("hello.md")!;
+		// Heads the relay never had.
+		first.store.records.set("hello.md", { ...record, syncedHeads: first.heat.heads() });
+		const second = plugin(first, { files: first.files, store: first.store, network: reconnect(first) });
+		await second.sync.start();
+		await eventually(() => first.files.files.get("hello.md") === "# Hello\n\nFrom Claude.\n", "the relay's text");
+		assert.equal(first.files.files.get(`hello (local copy ${TODAY}).md`), "Edited while the base was lost.\n");
+		assert.equal(textOf(first.hello), "# Hello\n\nFrom Claude.\n");
+	});
+});
+
+describe("a note the relay will not supply", () => {
+	it("is marked not syncing, and three are a vault problem", async () => {
+		const { sync, root } = await connected();
+		root.change((doc: any) => {
+			for (const name of ["ghost 1.md", "ghost 2.md"]) addEntry(doc, name, "md", generateAutomergeUrl());
+		});
+		await eventually(() => sync.notSynced.get("ghost 2.md") === UNAVAILABLE, "the mark");
+		assert.equal(sync.vaultProblem(), false);
+		root.change((doc: any) => addEntry(doc, "ghost 3.md", "md", generateAutomergeUrl()));
+		await eventually(() => sync.vaultProblem(), "the vault problem");
 	});
 });

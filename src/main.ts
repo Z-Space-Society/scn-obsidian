@@ -2,7 +2,7 @@ import { automergeWasmBase64 } from "@automerge/automerge/automerge.wasm.base64"
 import { initializeBase64Wasm } from "@automerge/automerge/slim";
 import { Repo } from "@automerge/automerge-repo/slim";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
-import { Notice, Plugin, TFile, TFolder, requestUrl } from "obsidian";
+import { Notice, Plugin, TFile, TFolder, requestUrl, setIcon } from "obsidian";
 import {
 	PROTOCOL_ACTION,
 	SignInError,
@@ -23,7 +23,8 @@ import { listVaults, type Vault } from "./relay.ts";
 import { DEFAULT_SETTINGS, signedInAsSomeoneElse, type Settings } from "./state.ts";
 import { ScnSyncSettingTab } from "./ui/settings.ts";
 import { Sync } from "./sync/sync.ts";
-import { ConnectModal, SetupModal, VaultPickModal } from "./ui/setup.ts";
+import { ConnectModal, DeleteGuardModal, SetupModal, VaultPickModal } from "./ui/setup.ts";
+import { StatusModal } from "./ui/status.ts";
 import { VaultFiles } from "./vaultfiles.ts";
 
 const PENDING_KEY = "scn-sync-pending-sign-in";
@@ -50,6 +51,19 @@ const http: Http = async (request) => {
 	return { status: response.status, json };
 };
 
+// The states of "Status and errors", as the member reads them.
+export type SyncState = "Not set up" | "Signed out" | "No vault" | "Syncing" | "Up to date" | "Offline" | "Attention";
+
+const ICONS: Record<SyncState, string> = {
+	"Not set up": "log-in",
+	"Signed out": "log-in",
+	"No vault": "folder-plus",
+	Syncing: "refresh-cw",
+	"Up to date": "check-circle",
+	Offline: "cloud-off",
+	Attention: "alert-triangle",
+};
+
 // Today as YYYY-MM-DD in the member's own time zone.
 function localDate(): string {
 	const now = new Date();
@@ -66,6 +80,8 @@ export default class ScnSync extends Plugin {
 	// Present while syncing.
 	sync: Sync | null = null;
 	connectionState: ConnectionState | null = null;
+	// When the status last reached Up to date, this session.
+	lastSynced: number | null = null;
 	private repo: Repo | null = null;
 	private connection: Connection | null = null;
 	private noteStore: IndexedDBNoteStore | null = null;
@@ -75,6 +91,8 @@ export default class ScnSync extends Plugin {
 	// Typing in an open note, per path, waiting to be sent.
 	private typing = new Map<string, number>();
 	private statusEl!: HTMLElement;
+	private ribbonEl!: HTMLElement;
+	private vaultProblemShown = false;
 
 	async onload() {
 		this.settings = { ...DEFAULT_SETTINGS, ...((await this.loadData()) ?? {}) };
@@ -124,7 +142,22 @@ export default class ScnSync extends Plugin {
 				return true;
 			},
 		});
+		this.addCommand({
+			id: "open-status",
+			name: "Open sync status",
+			callback: () => new StatusModal(this.app, this).open(),
+		});
+		this.addCommand({
+			id: "reconnect",
+			name: "Reconnect now",
+			checkCallback: (checking) => {
+				if (!this.connection) return false;
+				if (!checking) this.connection.resume();
+				return true;
+			},
+		});
 		this.addSettingTab(new ScnSyncSettingTab(this.app, this));
+		this.ribbonEl = this.addRibbonIcon("refresh-cw", "SCN Sync", () => new StatusModal(this.app, this).open());
 		// Not available on iOS, where the ribbon and settings carry the status.
 		this.statusEl = this.addStatusBarItem();
 		this.showStatus();
@@ -311,6 +344,7 @@ export default class ScnSync extends Plugin {
 			onState: (state) => {
 				const was = this.connectionState;
 				this.connectionState = state;
+				if ((state === "online") !== (was === "online")) this.sync?.connectionChanged(state === "online");
 				if (state === "signed out" && was !== "signed out") {
 					new Notice("SCN Sync: signed out. Sign in again to keep syncing.", 0);
 				}
@@ -325,6 +359,8 @@ export default class ScnSync extends Plugin {
 			files: this.files,
 			store: noteStore,
 			confirm: (plan) => new ConnectModal(this.app, plan, this.settings.vaultName).ask(),
+			confirmDeletes: (paths) => new DeleteGuardModal(this.app, paths, this.settings.vaultName).ask(),
+			online: () => this.connection?.state === "online",
 			onStatus: () => {
 				if (sync.declined && !declined) {
 					declined = true;
@@ -350,22 +386,46 @@ export default class ScnSync extends Plugin {
 		this.showStatus();
 	}
 
-	statusText(): string {
+	state(): SyncState {
 		const { settings, sync, connectionState } = this;
 		if (!settings.vaultUrl) return this.signedIn() ? "No vault" : "Not set up";
 		if (!this.signedIn() || connectionState === "signed out") return "Signed out";
+		if (sync && (sync.guard.length > 0 || sync.notSynced.size > 0)) return "Attention";
 		if (connectionState === "offline") return "Offline";
-		if (sync && sync.notSynced.size > 0) return `${sync.notSynced.size} not syncing`;
-		const unsent = sync?.unsent().length ?? 0;
-		if (unsent > 0) return `${unsent} not uploaded`;
-		if (!sync || sync.working || connectionState === "connecting") return "Syncing";
+		if (!sync || sync.working || sync.unsent().length > 0 || connectionState !== "online") return "Syncing";
 		return "Up to date";
 	}
 
-	// The status bar only. The settings tab reads the status when drawn, and
-	// redrawing it on every change would take the cursor out of its fields.
+	statusText(): string {
+		const state = this.state();
+		const { sync } = this;
+		if (state === "Attention" && sync) {
+			if (sync.guard.length > 0) return `${state}: ${sync.guard.length} notes missing here`;
+			return `${state}: ${sync.notSynced.size} not syncing`;
+		}
+		const unsent = sync?.unsent().length ?? 0;
+		if (state === "Syncing" && unsent > 0) return `${state}, ${unsent} not uploaded`;
+		return state;
+	}
+
+	// The status bar and the ribbon. The settings tab reads the status when
+	// drawn, and redrawing it on every change would take the cursor out of
+	// its fields.
 	showStatus() {
-		this.statusEl?.setText(`SCN Sync: ${this.statusText()}`);
+		const state = this.state();
+		if (state === "Up to date") this.lastSynced = Date.now();
+		const text = `SCN Sync: ${this.statusText()}`;
+		this.statusEl?.setText(text);
+		if (this.ribbonEl) {
+			setIcon(this.ribbonEl, ICONS[state]);
+			this.ribbonEl.setAttribute("aria-label", text);
+		}
+		// N5. Only this needs the member to act; the guard asks in its modal.
+		const problem = this.sync?.vaultProblem() ?? false;
+		if (problem && !this.vaultProblemShown) {
+			new Notice("SCN Sync: several notes are not available from SCN. Check the vault on Corliss's Notes page.", 0);
+		}
+		this.vaultProblemShown = problem;
 	}
 
 	// The link for a member with no vault. Corliss's Notes page is the only

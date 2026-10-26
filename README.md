@@ -1,17 +1,12 @@
 # SCN Sync
 
-SCN Sync keeps a vault of Markdown notes in step with your notes on the
-Shared Computer Network, on desktop and iPhone. Notes written on SCN, on
-other devices or by Claude arrive as files, and edits, new notes, renames,
-moves and deletes made anywhere reach everywhere else, merging with anything
-made meanwhile.
+Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits, new notes, renames, moves and deletions across desktop and iPhone while merging concurrent changes. Sign in with an SCN membership via Corliss; notes are stored as Automerge documents on the relay and are not end-to-end encrypted.
 
 ## What it needs
 
 - An SCN membership. Signing in goes through Corliss, and access stops when
   the membership does.
 - A vault created on Corliss's Notes page, and the sync URL shown there.
-- A new, empty Obsidian vault to connect it to.
 
 ## Set up
 
@@ -21,9 +16,6 @@ made meanwhile.
    site and tap Sign in, then Open SCN sign-in.
 3. Sign in at SCN, and return to Obsidian.
 4. Choose your vault and tap Connect.
-
-Keep the vault out of iCloud. Two sync tools on one folder fight over the
-files.
 
 ## Network use
 

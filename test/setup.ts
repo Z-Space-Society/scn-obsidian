@@ -40,6 +40,8 @@ export function plugin(
 		files?: MemoryFiles;
 		store?: MemoryNoteStore;
 		confirm?: (plan: Plan) => Promise<boolean>;
+		confirmDeletes?: (paths: string[]) => Promise<boolean>;
+		online?: () => boolean;
 		network?: NetworkAdapter;
 	} = {},
 ) {
@@ -53,6 +55,8 @@ export function plugin(
 		files,
 		store,
 		confirm: options.confirm ?? (async (plan) => (plans.push(plan), true)),
+		confirmDeletes: options.confirmDeletes ?? (async () => false),
+		online: options.online ?? (() => true),
 		onStatus: () => {},
 		today: () => TODAY,
 	});

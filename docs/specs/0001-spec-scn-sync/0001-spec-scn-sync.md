@@ -463,6 +463,13 @@ adapter and, while connected, one WebSocket client adapter.
 Vault events are registered inside `onLayoutReady`, which skips the `create`
 event Obsidian fires for every existing file at load.
 
+A note moved in Finder while Obsidian runs reaches the plugin as a `delete`
+and a `create`, not a `rename` (check 6, 2026-10-26). It is sent as a delete
+and a new note with the same text: nothing is lost, but the note gets a new
+document, its history stays with the old one, and other devices see the file
+go to the trash and a new one appear. A move made in Obsidian keeps the
+document.
+
 All work for one note runs through one queue for that note, so outbound and
 inbound never interleave.
 
@@ -558,7 +565,9 @@ that arrive meanwhile are queued.
 **Guard against a vanished vault.** If more than 20 files with state are
 missing and they are over half of all files with state, the plugin stops,
 propagates no delete, and asks the member. A vault folder that was moved or
-not yet mounted must not empty the relay.
+not yet mounted must not empty the relay. The member either deletes them on
+the relay too, or downloads them again; closing the question downloads them,
+which loses nothing.
 
 This is the only net for changes the plugin did not see as events. On iOS
 that includes anything written outside Obsidian.
@@ -601,6 +610,14 @@ device that receives it:
   It removes the old entry if it is still there. This is how a move
   interrupted by a crash is finished at the next start.
 - Never writes a second file for the same document.
+
+A device follows a rename or move made elsewhere with `vault.rename`, never
+`fileManager.renameFile`, which rewrites links in other notes: two devices
+doing that for one rename would double the edit. A folder renamed or moved
+elsewhere is renamed here as one folder, so files SCN Sync does not sync go
+with it. That needs the folder's previous path, which the plugin knows from
+its last walk. Across a restart it does not, and the folder's notes move one
+by one, leaving any other files in the old folder.
 
 ### T3. Delete
 

@@ -64,13 +64,24 @@ export function nameKey(name: string): string {
 	return name.normalize("NFC").toLowerCase();
 }
 
+// T4. The name a colliding entry is given, computed from the entry alone so
+// every device that sees the collision makes the same edit.
+export function conflictName(name: string, type: string, url: string): string {
+	const id = url.replace(/^automerge:/, "").slice(0, 6);
+	const dot = type === FOLDER ? -1 : name.lastIndexOf(".");
+	if (dot <= 0) return `${name} (conflict ${id})`;
+	return `${name.slice(0, dot)} (conflict ${id})${name.slice(dot)}`;
+}
+
 // The entries of a folder the plugin acts on (D3: folders and notes), with
 // collisions resolved the relay's way (D6): the entry whose `url` sorts
-// lowest keeps the path. The rest are returned so they can be reported.
-export function entriesOf(doc: FolderDoc): { entries: Entry[]; skipped: Entry[] } {
+// lowest keeps the path. Entries with names not usable here are returned as
+// `skipped`, and those that lost a collision as `collisions`, to be renamed.
+export function entriesOf(doc: FolderDoc): { entries: Entry[]; skipped: Entry[]; collisions: Entry[] } {
 	const raw = Array.isArray(doc.docs) ? doc.docs : [];
 	const byKey = new Map<string, Entry>();
 	const skipped: Entry[] = [];
+	const collisions: Entry[] = [];
 	for (const item of raw) {
 		if (typeof item !== "object" || item === null) continue;
 		const fields = item as Record<string, unknown>;
@@ -89,11 +100,11 @@ export function entriesOf(doc: FolderDoc): { entries: Entry[]; skipped: Entry[] 
 		if (!held) {
 			byKey.set(key, entry);
 		} else if (entry.url < held.url) {
-			skipped.push(held);
+			collisions.push(held);
 			byKey.set(key, entry);
 		} else {
-			skipped.push(entry);
+			collisions.push(entry);
 		}
 	}
-	return { entries: [...byKey.values()], skipped };
+	return { entries: [...byKey.values()], skipped, collisions };
 }

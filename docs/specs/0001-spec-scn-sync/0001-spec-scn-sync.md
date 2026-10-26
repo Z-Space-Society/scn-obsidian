@@ -727,10 +727,8 @@ remote changes.
 
 **The cost.** A vault of N notes is N sync handshakes on every connection,
 so N every 15 minutes per device, and the relay keeps each requested
-document loaded. This is relay open question 7. The plugin logs, per
-connection, the number of documents and the time until the last one
-finishes its first exchange, so the cost can be read from a real vault.
-Nothing here reduces it. The candidates, a longer sync token or renewing a
+document loaded. This is relay open question 7. The plugin does not
+measure it. Nothing here reduces it. The candidates, a longer sync token or renewing a
 token on an open connection, belong to the relay and Corliss.
 
 ### N4. Return to the foreground
@@ -883,7 +881,7 @@ Two in-memory repos joined directly stand in for the plugin and the relay.
 | 8. The connection survives token expiry | Run past 15 minutes; no gap in sync |
 | 9. Swapping the WebSocket adapter on a live repo | N1 |
 | 10. `doc-unavailable` for a document held locally | Point a vault at a document the member may not open. Record what 2.5.6 does. Answers relay open question 2. Skipped. |
-| 11. Reconnect cost | Read the per-connection log on a vault of real size. Feeds relay open question 7. |
+| 11. Reconnect cost | Read the per-connection log on a vault of real size. Feeds relay open question 7. Not run. The measure was removed before the listing; Obsidian asks that the console carry only errors. |
 | 12. A removed member | Refresh fails, status says signed out, files stay. Skipped. |
 | 13. A lost store | Delete the IndexedDB database, restart; V3 runs and nothing is duplicated |
 
@@ -935,8 +933,9 @@ Run on 0.2.1 and 0.2.2 through BRAT, recorded 2026-10-26:
 2. Build in the order: schema and state; the repo and connection; auth;
    connect (V3); outbound and inbound; structure changes; reconciliation;
    UI.
-3. Laptop checks 1 to 13 against the deployed relay. Done, except 10 and 12,
-   which were skipped.
+3. Laptop checks 1 to 13 against the deployed relay. Done, except 7,
+   skipped on purpose (scn-sync-relay#1); 10 and 12, skipped; and 11, not
+   run.
 4. Development releases through BRAT. iPhone checks 14 to 19. Done, with 18
    skipped.
 5. Submit to the community directory (issue #1). Members are pointed at the

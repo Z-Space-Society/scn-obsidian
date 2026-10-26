@@ -1,21 +1,10 @@
-# scn-obsidian
+# SCN Sync
 
-Obsidian on the Shared Computer Network. This repo will hold **SCN Sync**, an
-Obsidian plugin (id `scn-sync`) that keeps a vault of plain markdown files in
-step with Automerge documents on
-[scn-sync-relay](https://github.com/Z-Space-Society/scn-sync-relay), on laptop
-and iPhone, signed in through
-[Corliss](https://github.com/Z-Space-Society/Corliss).
-
-## Status: in testing on the iPhone
-
-SCN Sync signs in through Corliss, connects an Obsidian vault to one of the
-member's relay vaults, and keeps the two in step: notes written on SCN, on
+SCN Sync keeps a vault of Markdown notes in step with your notes on the
+Shared Computer Network, on desktop and iPhone. Notes written on SCN, on
 other devices or by Claude arrive as files, and edits, new notes, renames,
 moves and deletes made anywhere reach everywhere else, merging with anything
-made meanwhile. It is not yet in Obsidian's community directory. The build
-order is in issue #2, the listing in issue #1. The spec is at
-[`docs/specs/0001-spec-scn-sync/`](docs/specs/0001-spec-scn-sync/0001-spec-scn-sync.md).
+made meanwhile.
 
 ## What it needs
 
@@ -23,6 +12,18 @@ order is in issue #2, the listing in issue #1. The spec is at
   the membership does.
 - A vault created on Corliss's Notes page, and the sync URL shown there.
 - A new, empty Obsidian vault to connect it to.
+
+## Set up
+
+1. In Obsidian, open Settings, Community plugins, Browse. Search for
+   "SCN Sync", then Install and Enable.
+2. In the setup window, paste the sync URL from the Notes page of your SCN
+   site and tap Sign in, then Open SCN sign-in.
+3. Sign in at SCN, and return to Obsidian.
+4. Choose your vault and tap Connect.
+
+Keep the vault out of iCloud. Two sync tools on one folder fight over the
+files.
 
 ## Network use
 
@@ -33,14 +34,15 @@ SCN Sync contacts two services and nothing else:
 - **Corliss**, the sign-in server the relay names: the browser sign-in, and
   token requests and renewals.
 
-It sends no telemetry and loads no code at runtime.
+It sends no telemetry, and does not install or update itself or its
+dependencies.
 
 ## Privacy
 
 Notes are stored on the relay as Automerge documents. They are not
 end-to-end encrypted: SCN's operators can read them.
 
-## Build
+## Development
 
 ```
 npm install
@@ -66,6 +68,10 @@ ln -s "$PWD" "<vault>/.obsidian/plugins/scn-sync"
 
 Then enable SCN Sync under Community plugins and reload Obsidian after each
 build.
+
+The design is in the spec at
+[`docs/specs/0001-spec-scn-sync/`](docs/specs/0001-spec-scn-sync/0001-spec-scn-sync.md).
+Bugs and requests go to this repo's issues on GitHub.
 
 ## Names
 

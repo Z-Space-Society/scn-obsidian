@@ -1,4 +1,4 @@
-import { App, FileSystemAdapter, Modal, Notice, Platform, Setting } from "obsidian";
+import { App, ButtonComponent, FileSystemAdapter, Modal, Notice, Platform, Setting } from "obsidian";
 import type ScnSync from "../main.ts";
 import type { Plan } from "../sync/sync.ts";
 import { describe } from "../messages.ts";
@@ -62,6 +62,10 @@ export class SetupModal extends Modal {
 			return;
 		}
 
+		// Two taps: the first reaches the relay, the second opens the browser
+		// straight from the tap, which iOS requires.
+		let signInUrl: string | null = null;
+		let button!: ButtonComponent;
 		new Setting(contentEl)
 			.setName("Sync URL")
 			.setDesc("Shown on the Notes page of your SCN site.")
@@ -69,24 +73,34 @@ export class SetupModal extends Modal {
 				t
 					.setPlaceholder("https://sync.example.org")
 					.setValue(this.syncUrl)
-					.onChange((v) => (this.syncUrl = v)),
+					.onChange((v) => {
+						this.syncUrl = v;
+						signInUrl = null;
+						button.setButtonText("Sign in");
+						after.setText("");
+					}),
 			);
 		const after = contentEl.createEl("p", { cls: "setting-item-description" });
-		new Setting(contentEl).addButton((b) =>
-			b
+		new Setting(contentEl).addButton((b) => {
+			button = b
 				.setButtonText("Sign in")
 				.setCta()
 				.onClick(async () => {
-					try {
-						await plugin.startSignIn(this.syncUrl);
+					if (signInUrl) {
+						window.open(signInUrl);
 						after.setText(
-							"Your browser opens at SCN. Sign in, then come back to Obsidian. If nothing comes back, check that you are an SCN member.",
+							"Sign in at SCN, then come back to Obsidian. If nothing comes back, check that you are an SCN member.",
 						);
+						return;
+					}
+					try {
+						signInUrl = await plugin.prepareSignIn(this.syncUrl);
+						button.setButtonText("Open SCN sign-in");
 					} catch (e) {
 						new Notice(`SCN Sync: ${describe(e)}`, 0);
 					}
-				}),
-		);
+				});
+		});
 	}
 
 	onClose() {

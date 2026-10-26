@@ -232,13 +232,15 @@ export default class ScnSync extends Plugin {
 		this.onChange?.();
 	}
 
-	// S1 and S2. Opens the browser at Corliss.
-	async startSignIn(input: string) {
+	// S1 and S2. Returns the address at Corliss to open. The caller opens it
+	// from a tap of its own: iOS ignores window.open once a tap has waited on
+	// the network.
+	async prepareSignIn(input: string): Promise<string> {
 		const syncUrl = normaliseSyncUrl(input);
 		const endpoints = await discover(http, syncUrl, this.settings.issuerOverride.trim() || undefined);
 		const { pending, url } = await beginSignIn(endpoints, syncUrl, Date.now());
 		this.app.saveLocalStorage(PENDING_KEY, pending);
-		window.open(url);
+		return url;
 	}
 
 	// S3 and S4. The browser has handed back to Obsidian.

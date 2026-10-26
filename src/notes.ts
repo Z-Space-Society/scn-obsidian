@@ -8,8 +8,11 @@ export interface NoteState {
 	syncedHash: string;
 	// The document's heads at that moment. With syncedHash, the base (O2).
 	syncedHeads: string[];
-	// T5. Not set by anything until outbound exists.
+	// T5. Not set by anything yet.
 	offlineEdit: boolean;
+	// T2. Set on a note moved here from another folder until the old entry
+	// is removed, so a move cut short is finished at the next start.
+	movedFrom?: string;
 }
 
 export interface NoteStore {
@@ -43,6 +46,9 @@ export interface Files {
 	write(path: string, text: string, expected?: string | null): Promise<boolean>;
 	// Every markdown file the sync may act on.
 	list(): string[];
+	// Whether a path is one the sync acts on: markdown, and no dot-prefixed
+	// segment, which covers the config folder and the trash.
+	synced(path: string): boolean;
 }
 
 export class MemoryFiles implements Files {
@@ -59,7 +65,11 @@ export class MemoryFiles implements Files {
 	}
 
 	list() {
-		return [...this.files.keys()];
+		return [...this.files.keys()].filter((path) => this.synced(path));
+	}
+
+	synced(path: string) {
+		return path.toLowerCase().endsWith(".md") && !path.split("/").some((segment) => segment.startsWith("."));
 	}
 }
 

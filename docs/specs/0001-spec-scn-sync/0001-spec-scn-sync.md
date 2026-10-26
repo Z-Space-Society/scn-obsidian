@@ -495,6 +495,13 @@ second, matching the relay's admission rule.
 Bulk adds are queued and worked through a few at a time. Entries for many
 new files in one folder are added in one change to that folder document.
 
+Create, delete and rename events are collected for 50 ms and handled as one
+batch, folders before files and shallowest first. A file event inside a
+folder already handled in the batch is dropped, so a folder rename or delete
+is one entry edit whether Obsidian reports it as one event, or as one per
+file in either order. A walk that began before a structure change made here
+is thrown away, so it cannot bring back a path just renamed or deleted.
+
 ### O4. Inbound: document to file
 
 1. A change arrives on a note document.
@@ -579,6 +586,11 @@ Two documents change, so it cannot be atomic. **Add before remove:**
 
 1. Append the entry to the destination folder's `docs`.
 2. Remove the entry from the source folder's `docs`.
+
+The mover's per-note state moves to the new path first, with `movedFrom`
+set to the old one, and `movedFrom` is cleared after step 2. A state found
+with `movedFrom` at startup means the move was cut short, and its old entry
+is removed then.
 
 A note seen at two paths in one vault is a move in progress, not a copy. A
 device that receives it:

@@ -75,7 +75,21 @@ describe("the tree walk", () => {
 		};
 		const tree = await walk(async (url) => docs[url] ?? null, "root");
 		assert.deepEqual(Object.fromEntries(tree.notes), { "top.md": "n1", "a/deep.md": "n2" });
-		assert.deepEqual(tree.skipped, ["a/back: already at another path"]);
+		assert.deepEqual(tree.skipped, ["a/back: a folder inside itself"]);
+	});
+
+	it("lists a note found at two paths once, and the other as a duplicate", async () => {
+		const docs: Record<string, unknown> = {
+			root: folder([
+				{ name: "old", type: "folder", url: "f1" },
+				{ name: "new", type: "folder", url: "f2" },
+			]),
+			f1: folder([{ name: "moving.md", type: "md", url: "n1" }]),
+			f2: folder([{ name: "moving.md", type: "md", url: "n1" }]),
+		};
+		const tree = await walk(async (url) => docs[url] ?? null, "root");
+		assert.deepEqual(Object.fromEntries(tree.notes), { "new/moving.md": "n1" });
+		assert.deepEqual(tree.duplicates, [{ path: "old/moving.md", url: "n1" }]);
 	});
 
 	it("reports a folder the relay cannot supply", async () => {

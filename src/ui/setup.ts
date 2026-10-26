@@ -195,7 +195,7 @@ export class ConnectModal extends Modal {
 		}
 		if (plan.localOnly.length) {
 			list.createEl("li", {
-				text: `${count(plan.localOnly.length, "note here is", "notes here are")} not on SCN and ${plan.localOnly.length === 1 ? "stays" : "stay"} here. SCN Sync does not upload ${plan.localOnly.length === 1 ? "it" : "them"} yet.`,
+				text: `${count(plan.localOnly.length, "note here is", "notes here are")} not on SCN and ${plan.localOnly.length === 1 ? "is" : "are"} uploaded.`,
 			});
 		}
 		if (list.childElementCount === 0) list.createEl("li", { text: "This vault is empty on SCN and here." });

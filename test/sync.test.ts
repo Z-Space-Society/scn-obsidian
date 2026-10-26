@@ -1,62 +1,12 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { Repo, type DocHandle } from "@automerge/automerge-repo/slim";
+import { Repo } from "@automerge/automerge-repo/slim";
 import { MemoryFiles, MemoryNoteStore } from "../src/notes.ts";
-import { noteText } from "../src/schema.ts";
-import { Sync, copyName, type Plan } from "../src/sync/sync.ts";
-import { A, eventually, folder, note, pipes, relayRepo } from "./helpers.ts";
+import { Sync, copyName } from "../src/sync/sync.ts";
+import { eventually, note } from "./helpers.ts";
+import { TODAY, append, connected, plugin, relayWithNotes, running, stopAll, textOf } from "./setup.ts";
 
-const TODAY = "2026-10-24";
-let running: Sync[] = [];
-
-afterEach(() => {
-	for (const sync of running) sync.stop();
-	running = [];
-});
-
-// The relay holding what Jacob's vault holds: one note at the top and two in
-// a folder, all written over MCP.
-function relayWithNotes() {
-	const [pluginEnd, relayEnd] = pipes();
-	const relay = relayRepo(relayEnd);
-	const hello = note(relay, "hello.md", "# Hello\n\nFrom Claude.\n");
-	const heat = note(relay, "Personal Heat Map.md", "---\ntags: [art]\n---\nHeat map\r\n");
-	const option = note(relay, "Personal Heat Map - Interface Option 2.md", "Option 2 🚀\n");
-	const art = folder(relay, "Art Projects", [
-		["Personal Heat Map.md", heat],
-		["Personal Heat Map - Interface Option 2.md", option],
-	]);
-	const root = folder(relay, "SCN Notes", [
-		["Art Projects", art],
-		["hello.md", hello],
-	]);
-	return { relay, pluginEnd, root, hello, heat, option, art };
-}
-
-function plugin(
-	setup: ReturnType<typeof relayWithNotes>,
-	options: { files?: MemoryFiles; store?: MemoryNoteStore; confirm?: (plan: Plan) => Promise<boolean> } = {},
-) {
-	const repo = new Repo({ network: [setup.pluginEnd] });
-	const files = options.files ?? new MemoryFiles();
-	const store = options.store ?? new MemoryNoteStore();
-	const plans: Plan[] = [];
-	const sync = new Sync({
-		repo,
-		rootUrl: setup.root.url,
-		files,
-		store,
-		confirm: options.confirm ?? (async (plan) => (plans.push(plan), true)),
-		onStatus: () => {},
-		today: () => TODAY,
-	});
-	running.push(sync);
-	return { sync, files, store, plans, repo };
-}
-
-function append(handle: DocHandle<unknown>, text: string) {
-	handle.change((doc: any) => A.splice(doc, ["content"], doc.content.length, 0, text));
-}
+afterEach(stopAll);
 
 describe("the first connect", () => {
 	it("downloads the relay's notes byte for byte, folders included", async () => {
@@ -137,18 +87,6 @@ describe("inbound", () => {
 		await eventually(() => files.files.get("Art Projects/new.md") === "brand new\n", "the new note");
 	});
 });
-
-async function connected() {
-	const setup = relayWithNotes();
-	const local = plugin(setup);
-	await local.sync.start();
-	await local.sync.idle();
-	return { ...setup, ...local };
-}
-
-function textOf(handle: DocHandle<unknown>): string | null {
-	return noteText(handle.doc());
-}
 
 describe("outbound", () => {
 	it("sends an edit made here to the relay", async () => {

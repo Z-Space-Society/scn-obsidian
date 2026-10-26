@@ -65,14 +65,7 @@ ln -s "$PWD" "<vault>/.obsidian/plugins/scn-sync"
 ```
 
 Then enable SCN Sync under Community plugins and reload Obsidian after each
-build. Disable the probe first if it is installed in the same vault: both
-register `obsidian://scn-obsidian`.
-
-Also here is [`probe/`](probe/README.md), a throwaway plugin that tests on
-a real iPhone the things the design depends on and that could not be settled
-from Obsidian's documentation: the `obsidian://` sign-in return, storage
-durability, sockets across app suspension, and Automerge's WebAssembly load
-time.
+build.
 
 ## Names
 

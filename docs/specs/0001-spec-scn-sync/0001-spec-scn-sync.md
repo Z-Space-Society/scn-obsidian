@@ -93,7 +93,7 @@ issue #1. In short:
 
 - `manifest.json` at the repo root, and a GitHub release per version whose
   tag is exactly the manifest version, carrying `main.js`, `manifest.json`
-  and `styles.css` when there is one. The tag `0.0.1` belongs to the probe.
+  and `styles.css` when there is one. The tag `0.0.1` belonged to the retired probe.
   The first SCN Sync release is `0.2.0`.
 - The README discloses network use (Corliss and the relay, nothing else),
   that an SCN membership is required, and that notes are not end-to-end
@@ -800,7 +800,7 @@ stay where they are.
 | Edits outside Obsidian | Seen as events, and by startup reconciliation | Not designed for. Startup reconciliation is the only net. |
 | iCloud check | From the vault's absolute path | Not possible. Instruction only. |
 | Backgrounding | Keeps running | Frozen at once. The socket dies. Reconnect on return (N4). |
-| IndexedDB | Durable in practice | Can be evicted. Lost-store recovery (L3) is expected to run sometimes. |
+| IndexedDB | Durable in practice | Can be evicted. Lost-store recovery (L3) is expected to run sometimes. Check 17 saw it survive 18 days. |
 | Sign-in return | The OS hands the address to Obsidian | Safari asks "Open this page in Obsidian?" first. Works from a cold start. |
 | Syncs while | Obsidian is running | Obsidian is in the foreground |
 | Install, members | Community directory | Community directory |
@@ -882,9 +882,9 @@ Two in-memory repos joined directly stand in for the plugin and the relay.
 | 7. 500 notes dropped in at once | All arrive; no duplicate documents |
 | 8. The connection survives token expiry | Run past 15 minutes; no gap in sync |
 | 9. Swapping the WebSocket adapter on a live repo | N1 |
-| 10. `doc-unavailable` for a document held locally | Point a vault at a document the member may not open. Record what 2.5.6 does. Answers relay open question 2. |
+| 10. `doc-unavailable` for a document held locally | Point a vault at a document the member may not open. Record what 2.5.6 does. Answers relay open question 2. Skipped. |
 | 11. Reconnect cost | Read the per-connection log on a vault of real size. Feeds relay open question 7. |
-| 12. A removed member | Refresh fails, status says signed out, files stay |
+| 12. A removed member | Refresh fails, status says signed out, files stay. Skipped. |
 | 13. A lost store | Delete the IndexedDB database, restart; V3 runs and nothing is duplicated |
 
 ### On a real iPhone
@@ -894,16 +894,16 @@ sign-in return with Obsidian alive and closed, `window.open`, `requestUrl`
 against `fetch`, the socket dying in the background, `persist()` refused,
 `SecretStorage`, WASM start time.
 
-Still to run:
+Run on 0.2.1 and 0.2.2 through BRAT, recorded 2026-10-26:
 
-| Check | How |
-|---|---|
-| 14. Checks 1, 2 and 3 on the phone | Corliss acceptance check 4, relay acceptance checks 4 and 5 |
-| 15. Leave and return | Edit on the laptop while the phone is away; the change is there within seconds of returning |
-| 16. Startup time with a real vault | Time from launch to "Up to date" |
-| 17. IndexedDB over days | The probe's storage test, repeated |
-| 18. A refresh interrupted by backgrounding | Corliss open question 2. Background the app at the moment of refresh, return after 10 seconds and after 2 minutes. |
-| 19. Sync TLS | The sync host's certificate is trusted by the phone with no profile installed |
+| Check | How | Result |
+|---|---|---|
+| 14. Checks 1, 2 and 3 on the phone | Corliss acceptance check 4, relay acceptance checks 4 and 5 | Passed. A note round-trips laptop and phone. Edits made while the phone was offline merged with nothing lost or doubled; two concurrent inserts at the same point land in Automerge's order, not typing order. A Claude `append_note` reached the phone, and a phone edit read back over MCP. |
+| 15. Leave and return | Edit on the laptop while the phone is away; the change is there within seconds of returning | Passed, for an edit made while the phone was locked and one made while Obsidian was killed. |
+| 16. Startup time with a real vault | Time from launch to "Up to date" | Passed by eye: quick on a three-note vault. Not timed against a large vault. |
+| 17. IndexedDB over days | The probe's storage test, repeated | Passed. The IndexedDB and local storage markers survived 18 days with `persist()` refused. |
+| 18. A refresh interrupted by backgrounding | Corliss open question 2. Background the app at the moment of refresh, return after 10 seconds and after 2 minutes. | Skipped by choice. Corliss open question 2 stays open. |
+| 19. Sync TLS | The sync host's certificate is trusted by the phone with no profile installed | Passed. |
 
 ## Open questions
 
@@ -935,8 +935,10 @@ Still to run:
 2. Build in the order: schema and state; the repo and connection; auth;
    connect (V3); outbound and inbound; structure changes; reconciliation;
    UI.
-3. Laptop checks 1 to 13 against the deployed relay.
-4. Development releases through BRAT. iPhone checks 14 to 19.
+3. Laptop checks 1 to 13 against the deployed relay. Done, except 10 and 12,
+   which were skipped.
+4. Development releases through BRAT. iPhone checks 14 to 19. Done, with 18
+   skipped.
 5. Submit to the community directory (issue #1). Members are pointed at the
    plugin only once it is listed.
-6. Retire `probe/` once check 17 has run long enough to answer it.
+6. Retire `probe/` once check 17 has run long enough to answer it. Done.

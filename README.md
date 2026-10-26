@@ -7,15 +7,38 @@ step with Automerge documents on
 and iPhone, signed in through
 [Corliss](https://github.com/Z-Space-Society/Corliss).
 
-## Status: two-way, except following structure from elsewhere
+## Status: in testing on the iPhone
 
 SCN Sync signs in through Corliss, connects an Obsidian vault to one of the
 member's relay vaults, and keeps the two in step: notes written on SCN, on
 other devices or by Claude arrive as files, and edits, new notes, renames,
-moves and deletes made in Obsidian go back, merging with anything made
-meanwhile. A rename, move or delete made on another device is not followed
-yet. The build order is in issue #2. The spec is at
+moves and deletes made anywhere reach everywhere else, merging with anything
+made meanwhile. It is not yet in Obsidian's community directory. The build
+order is in issue #2, the listing in issue #1. The spec is at
 [`docs/specs/0001-spec-scn-sync/`](docs/specs/0001-spec-scn-sync/0001-spec-scn-sync.md).
+
+## What it needs
+
+- An SCN membership. Signing in goes through Corliss, and access stops when
+  the membership does.
+- A vault created on Corliss's Notes page, and the sync URL shown there.
+- A new, empty Obsidian vault to connect it to.
+
+## Network use
+
+SCN Sync contacts two services and nothing else:
+
+- **The relay** at the sync URL: its sign-in metadata and vault list over
+  HTTPS, and the sync itself over a WebSocket to the same host.
+- **Corliss**, the sign-in server the relay names: the browser sign-in, and
+  token requests and renewals.
+
+It sends no telemetry and loads no code at runtime.
+
+## Privacy
+
+Notes are stored on the relay as Automerge documents. They are not
+end-to-end encrypted: SCN's operators can read them.
 
 ## Build
 
@@ -26,7 +49,12 @@ npm run build
 ```
 
 `npm run build` type-checks and writes `main.js` at the repo root. `npm run
-dev` rebuilds it on every change. The tests run under Node's own test
+dev` rebuilds it on every change. A release's `main.js` is built this way
+from the tagged commit, after `npm ci`.
+
+`main.js` is about 5 MB because Automerge's WebAssembly is inlined in it as
+base64. It comes from `@automerge/automerge` 3.5.0, the file
+`automerge.wasm.base64`, pinned in `package-lock.json`. The tests run under Node's own test
 runner, with no framework, and cover what does not need Obsidian.
 
 To load a development build on a laptop, make a new, empty Obsidian vault

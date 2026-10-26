@@ -51,8 +51,9 @@ npm run build
 ```
 
 `npm run build` type-checks and writes `main.js` at the repo root. `npm run
-dev` rebuilds it on every change. A release's `main.js` is built this way
-from the tagged commit, after `npm ci`.
+dev` rebuilds it on every change. A release is built this way by GitHub
+Actions when its version tag is pushed, from the tagged commit after `npm
+ci`, and its files carry GitHub artifact attestations.
 
 `main.js` is about 5 MB because Automerge's WebAssembly is inlined in it as
 base64. It comes from `@automerge/automerge` 3.5.0, the file

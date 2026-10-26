@@ -31,15 +31,14 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 				heading: "Account",
 				items: [
 					signedIn
-						? buttonRow("Signed in", `${settings.did} at ${settings.syncUrl}`, (b) =>
-								b.setButtonText("Sign out").onClick(() => plugin.signOut()),
-							)
-						: buttonRow("Signed out", settings.syncUrl ? `Sync URL ${settings.syncUrl}` : "Not set up yet.", (b) =>
-								b
-									.setButtonText("Sign in")
+						? buttonRow("Signed in", `${settings.did} at ${settings.syncUrl}`, (b) => {
+								b.setButtonText("Sign out").onClick(() => plugin.signOut());
+							})
+						: buttonRow("Signed out", settings.syncUrl ? `Sync URL ${settings.syncUrl}` : "Not set up yet.", (b) => {
+								b.setButtonText("Sign in")
 									.setCta()
-									.onClick(() => new SetupModal(this.app, plugin).open()),
-							),
+									.onClick(() => new SetupModal(this.app, plugin).open());
+							}),
 				],
 			},
 			{
@@ -47,15 +46,14 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 				heading: "Vault",
 				items: [
 					settings.vaultUrl
-						? buttonRow(settings.vaultName, "This Obsidian vault is connected to it. Disconnecting keeps every file.", (b) =>
-								b.setButtonText("Disconnect").onClick(() => void plugin.disconnect()),
-							)
-						: buttonRow("No vault connected", signedIn ? "Choose one of your SCN vaults." : "Sign in first.", (b) =>
-								b
-									.setButtonText("Choose vault")
+						? buttonRow(settings.vaultName, "This Obsidian vault is connected to it. Disconnecting keeps every file.", (b) => {
+								b.setButtonText("Disconnect").onClick(() => void plugin.disconnect());
+							})
+						: buttonRow("No vault connected", signedIn ? "Choose one of your SCN vaults." : "Sign in first.", (b) => {
+								b.setButtonText("Choose vault")
 									.setDisabled(!signedIn)
-									.onClick(() => new VaultPickModal(this.app, plugin).open()),
-							),
+									.onClick(() => new VaultPickModal(this.app, plugin).open());
+							}),
 				],
 			},
 			{
@@ -65,7 +63,9 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 				// Note paths and live counts, not settings to search for.
 				items: statusRows(plugin).map(({ name, desc, button }) => ({
 					...(button
-						? buttonRow(name, desc, (b) => b.setButtonText(button.text).onClick(button.onClick))
+						? buttonRow(name, desc, (b) => {
+								b.setButtonText(button.text).onClick(button.onClick);
+							})
 						: { name, desc }),
 					searchable: false,
 				})),

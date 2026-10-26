@@ -3,7 +3,7 @@
 // reconciliation (O6).
 
 import * as A from "@automerge/automerge/slim";
-import { decodeHeads, type AutomergeUrl, type DocHandle, type Repo, type RepoEvents, type UrlHeads } from "@automerge/automerge-repo/slim";
+import { decodeHeads, type AutomergeUrl, type DocHandle, type Repo, type UrlHeads } from "@automerge/automerge-repo/slim";
 import { splicesBetween } from "../diff.ts";
 import { type Files, type NoteState, type NoteStore, sha256 } from "../notes.ts";
 import { FOLDER, NOTE, conflictName, nameKey, noteText, validName, type FolderDoc } from "../schema.ts";
@@ -22,8 +22,6 @@ export const OFFLINE_EDIT_CLEAR_MS = 30_000;
 export const VANISHED_MIN = 20;
 // N5. This many notes unavailable at once is a problem with the vault.
 export const VAULT_PROBLEM_MIN = 3;
-// N3. How long the reconnect log waits for every document's first exchange.
-const FIRST_EXCHANGE_CAP_MS = 30_000;
 export const UNAVAILABLE = "Not available from SCN.";
 
 // What the connect procedure will do, shown to the member before it runs.
@@ -123,7 +121,6 @@ export class Sync {
 	private busy = 0;
 	private stopped = false;
 	private offlineTimer: ReturnType<typeof setTimeout> | null = null;
-	private stopMeasuring: (() => void) | null = null;
 
 	constructor(options: SyncOptions) {
 		this.options = options;
@@ -151,7 +148,6 @@ export class Sync {
 		this.stopped = true;
 		if (this.eventTimer !== null) clearTimeout(this.eventTimer);
 		if (this.offlineTimer !== null) clearTimeout(this.offlineTimer);
-		this.stopMeasuring?.();
 	}
 
 	// N5. Three or more notes the relay will not supply.
@@ -164,9 +160,7 @@ export class Sync {
 	connectionChanged(online: boolean) {
 		if (this.offlineTimer !== null) clearTimeout(this.offlineTimer);
 		this.offlineTimer = null;
-		this.stopMeasuring?.();
 		if (!online || this.stopped) return;
-		this.measure();
 		this.offlineTimer = setTimeout(() => {
 			this.offlineTimer = null;
 			void this.clearOfflineEdits();
@@ -180,34 +174,6 @@ export class Sync {
 			this.states.set(state.path, next);
 			await this.options.store.put(next);
 		}
-	}
-
-	// N3. The cost of a connection: how many documents, and how long until
-	// the relay has answered for each.
-	private measure() {
-		const { repo } = this.options;
-		const waiting = new Set<string>([...this.handles.values()].map((h) => h.documentId));
-		const count = waiting.size;
-		if (count === 0) return;
-		const started = Date.now();
-		const stop = () => {
-			this.stopMeasuring = null;
-			repo.off("doc-metrics", onMetrics);
-			clearTimeout(cap);
-		};
-		const report = () => {
-			stop();
-			const left = waiting.size === 0 ? "" : `, ${waiting.size} still waiting`;
-			console.log(`SCN Sync: ${count} documents, first exchange done after ${Date.now() - started} ms${left}`);
-		};
-		const onMetrics: RepoEvents["doc-metrics"] = (event) => {
-			if (event.type !== "receive-sync-message") return;
-			waiting.delete(event.documentId);
-			if (waiting.size === 0) report();
-		};
-		const cap = setTimeout(report, FIRST_EXCHANGE_CAP_MS);
-		this.stopMeasuring = stop;
-		repo.on("doc-metrics", onMetrics);
 	}
 
 	// Waits until nothing is queued, for tests and for a status that settles.

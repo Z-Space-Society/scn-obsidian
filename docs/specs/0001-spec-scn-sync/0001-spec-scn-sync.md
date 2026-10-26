@@ -62,7 +62,7 @@ entry in the test plan.
 | Repo | `scn-obsidian` |
 | Manifest `id` | `scn-sync` |
 | Display name | SCN Sync |
-| `minAppVersion` | `1.11.4`, for `SecretStorage` |
+| `minAppVersion` | `1.13.0`, for the declarative settings tab and `setDestructive` |
 | `isDesktopOnly` | `false` |
 | OAuth `client_id` | `<issuer>/clients/scn-obsidian.json` |
 | Redirect URI | `obsidian://scn-obsidian` |

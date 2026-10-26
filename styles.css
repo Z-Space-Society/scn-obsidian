@@ -1,0 +1,18 @@
+/* Wide enough on desktop that the opening sentence keeps to one line. */
+.scn-sync-setup {
+	--dialog-width: 640px;
+}
+
+/* The sync URL field takes its own line, wide enough for the whole address. */
+.scn-sync-url {
+	flex-wrap: wrap;
+}
+
+.scn-sync-url .setting-item-control {
+	flex: 1 1 100%;
+	margin-top: var(--size-4-2);
+}
+
+.scn-sync-url .setting-item-control input {
+	width: 100%;
+}

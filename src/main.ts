@@ -77,6 +77,9 @@ export default class ScnSync extends Plugin {
 	// Set by whichever settings screen is showing, so a sign-in finishing in
 	// the background redraws it.
 	onChange: (() => void) | null = null;
+	// The setup modal while it is open, so a sign-in finishing in the
+	// background can close it.
+	setupModal: SetupModal | null = null;
 	// Present while syncing.
 	sync: Sync | null = null;
 	connectionState: ConnectionState | null = null;
@@ -273,6 +276,7 @@ export default class ScnSync extends Plugin {
 			});
 			await this.save();
 			new Notice("SCN Sync: signed in.");
+			this.setupModal?.close();
 			if (!this.settings.vaultUrl) new VaultPickModal(this.app, this).open();
 			else void this.startSync();
 		} catch (e) {

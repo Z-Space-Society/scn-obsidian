@@ -29,11 +29,13 @@ export class SetupModal extends Modal {
 	onOpen() {
 		const { contentEl, plugin } = this;
 		contentEl.empty();
+		plugin.setupModal = this;
+		this.modalEl.addClass("scn-sync-setup");
 		this.setTitle("Set up SCN Sync");
 		contentEl.createEl("p", {
-			text: "SCN Sync keeps the notes in this Obsidian vault in step with one of your vaults on the Shared Computer Network. Edits made here, on your other devices and by Claude reach each other.",
+			text: "SCN Sync keeps the notes in this vault in step with any other devices or LLMs.",
 		});
-		contentEl.createEl("p", { text: "Your notes are not end-to-end encrypted. SCN's operators can read them." });
+		contentEl.createEl("p", { text: "NOTE: your notes are not end-to-end encrypted." });
 
 		const warning = iCloudWarning(this.app);
 		if (warning) contentEl.createEl("p", { text: warning, cls: "mod-warning" });
@@ -67,6 +69,7 @@ export class SetupModal extends Modal {
 		let signInUrl: string | null = null;
 		let button!: ButtonComponent;
 		new Setting(contentEl)
+			.setClass("scn-sync-url")
 			.setName("Sync URL")
 			.setDesc("Shown on the Notes page of your SCN site.")
 			.addText((t) =>
@@ -104,6 +107,7 @@ export class SetupModal extends Modal {
 	}
 
 	onClose() {
+		if (this.plugin.setupModal === this) this.plugin.setupModal = null;
 		this.contentEl.empty();
 	}
 }

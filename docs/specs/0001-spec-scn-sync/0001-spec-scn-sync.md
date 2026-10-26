@@ -24,8 +24,8 @@ underneath are what let edits merge.
 - Creating, renaming or deleting a vault. Vaults are created on Corliss's
   Notes page. The plugin only connects to one.
 - Sharing a vault between members.
-- Importing an existing Obsidian vault in place. Setup starts from a new,
-  empty Obsidian vault.
+- Importing an existing Obsidian vault in place. A vault that already holds
+  notes can be connected (V3), and nothing beyond that is built.
 - Syncing anything but `.md` files. `.canvas`, `.base` and attachments come
   soon after and are designed for in the schema (D4), not built here.
 - Syncing Obsidian's config folder, ever.
@@ -93,8 +93,9 @@ Pinned dependencies, exact versions, no ranges:
 ## Distribution
 
 Members install from Obsidian's community directory, which works the same on
-desktop and iOS and updates the plugin itself. What a listing takes is in
-issue #1. In short:
+desktop and iOS and updates the plugin itself. SCN Sync is listed at
+https://community.obsidian.md/plugins/scn-sync, published 2026-10-26 at
+1.0.2. What a listing takes is in issue #1. In short:
 
 - `manifest.json` at the repo root, and a GitHub release per version whose
   tag is exactly the manifest version, carrying `main.js`, `manifest.json`
@@ -106,7 +107,8 @@ issue #1. In short:
 - `main.js` builds from source with a documented command, since reviewers
   will ask about a 5 MB bundle with inlined WASM.
 
-Until the listing, development builds reach test devices through BRAT.
+Test builds reach devices through BRAT. The listing keeps its own copy of
+the README: a push to `main` does not change it.
 
 ## Build and bundling
 
@@ -140,10 +142,9 @@ cannot do.
 
 1. **User:** on Corliss's Notes page (`/notes/`), create a vault. Copy
    the sync URL shown there.
-2. **User:** in Obsidian, create a new, empty vault. On iPhone, leave
-   **Store in iCloud** off.
-3. **User:** install SCN Sync from Community plugins and enable it. During
-   development, BRAT stands in for this step.
+2. **User:** in Obsidian, open the vault to connect, or create one.
+3. **User:** install SCN Sync from Community plugins and enable it. Test
+   builds come through BRAT instead.
 4. The plugin opens its setup modal from `onUserEnable`.
 5. The member pastes the sync URL and taps Sign in, then Open SCN sign-in.
    The browser opens, Corliss signs them in, and control returns to
@@ -155,11 +156,8 @@ cannot do.
 The setup modal:
 
 - Says what the plugin does and that notes are not end-to-end encrypted.
-- Checks that the vault has no `.md` files. If it has, it says so and lets
-  the member continue; see V3.
-- On desktop, warns when the vault's path is inside iCloud Drive. On iOS the
-  path is relative and tells nothing, so the modal states the instruction
-  instead.
+- Checks whether the vault has `.md` files. If it has, it says how many and
+  that nothing is overwritten: a note that differs is kept as a copy (V3).
 - Every step is also in the settings tab, so a dismissed modal loses
   nothing.
 
@@ -807,7 +805,6 @@ stay where they are.
 |---|---|---|
 | Status bar | Available | Not available. Ribbon and settings only. |
 | Edits outside Obsidian | Seen as events, and by startup reconciliation | Not designed for. Startup reconciliation is the only net. |
-| iCloud check | From the vault's absolute path | Not possible. Instruction only. |
 | Backgrounding | Keeps running | Frozen at once. The socket dies. Reconnect on return (N4). |
 | IndexedDB | Durable in practice | Can be evicted. Lost-store recovery (L3) is expected to run sometimes. Check 17 saw it survive 18 days. |
 | Sign-in return | The OS hands the address to Obsidian | Safari asks "Open this page in Obsidian?" first. Works from a cold start. |

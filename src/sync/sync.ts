@@ -186,7 +186,7 @@ export class Sync {
 
 	// N3. A document syncs only while it has an open handle, so every folder
 	// and note in the tree is opened and kept.
-	private async open(url: string): Promise<unknown | null> {
+	private async open(url: string): Promise<unknown> {
 		let handle = this.handles.get(url);
 		if (!handle) {
 			const found = await this.options.repo.find<unknown>(url as AutomergeUrl, {
@@ -418,7 +418,7 @@ export class Sync {
 		if (local === null) return;
 		// L3. The base is gone with the documents, though the records
 		// survived. Treated as the connect procedure treats the note.
-		if (!A.hasHeads(handle.doc() as A.Doc<unknown>, decodeHeads(state.syncedHeads as UrlHeads))) {
+		if (!A.hasHeads(handle.doc(), decodeHeads(state.syncedHeads as UrlHeads))) {
 			if (local !== text) await this.keepCopy(path, local);
 			await this.writeThenRecord(path, url, text, heads, local);
 			return;

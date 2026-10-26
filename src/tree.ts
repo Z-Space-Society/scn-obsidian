@@ -4,7 +4,7 @@
 import { FOLDER, entriesOf, isFolder } from "./schema.ts";
 
 // A document's contents, or null when the relay could not supply it.
-export type Open = (url: string) => Promise<unknown | null>;
+export type Open = (url: string) => Promise<unknown>;
 
 export interface Tree {
 	// Vault path to note document URL. A note at two paths, which is a move

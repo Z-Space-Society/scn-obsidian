@@ -276,7 +276,7 @@ export class DeleteGuardModal extends Modal {
 			.addButton((b) =>
 				b
 					.setButtonText("Delete on SCN")
-					.setWarning()
+					.setDestructive()
 					.onClick(() => this.finish(true)),
 			)
 			.addButton((b) =>

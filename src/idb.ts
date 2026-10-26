@@ -7,7 +7,7 @@ const STORE = "notes";
 function request<T>(req: IDBRequest<T>): Promise<T> {
 	return new Promise((resolve, reject) => {
 		req.onsuccess = () => resolve(req.result);
-		req.onerror = () => reject(req.error);
+		req.onerror = () => reject(req.error ?? new Error("IndexedDB request failed"));
 	});
 }
 
@@ -25,7 +25,7 @@ export class IndexedDBNoteStore implements NoteStore {
 	}
 
 	async all(): Promise<NoteState[]> {
-		return request((await this.store("readonly")).getAll());
+		return request((await this.store("readonly")).getAll() as IDBRequest<NoteState[]>);
 	}
 
 	async put(state: NoteState) {

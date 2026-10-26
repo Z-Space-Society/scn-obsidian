@@ -98,7 +98,8 @@ export default class ScnSync extends Plugin {
 	private vaultProblemShown = false;
 
 	async onload() {
-		this.settings = { ...DEFAULT_SETTINGS, ...((await this.loadData()) ?? {}) };
+		const saved = (await this.loadData()) as Partial<Settings> | null;
+		this.settings = { ...DEFAULT_SETTINGS, ...saved };
 		this.files = new VaultFiles(this.app);
 		this.keeper = new TokenKeeper({
 			http,

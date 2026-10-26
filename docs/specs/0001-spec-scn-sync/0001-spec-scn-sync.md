@@ -107,8 +107,9 @@ Until the listing, development builds reach test devices through BRAT.
 
 - One CommonJS `main.js` built with esbuild, as in
   `obsidian-sample-plugin`. A release carries `main.js`, `manifest.json` and
-  `styles.css` when there is one. Obsidian downloads nothing else. SCN Sync
-  has no stylesheet: it uses Obsidian's own classes.
+  `styles.css` when there is one. Obsidian downloads nothing else. SCN
+  Sync's `styles.css` lays out the sync URL field; everything else uses
+  Obsidian's own classes. No styles are set from code.
 - Automerge is imported from `@automerge/automerge/slim` and
   `@automerge/automerge-repo/slim`. The WASM is inlined from
   `@automerge/automerge/automerge.wasm.base64` and started with
@@ -142,7 +143,7 @@ cannot do.
 
 The setup modal:
 
-- Says what the plugin does and that SCN's operators can read the notes.
+- Says what the plugin does and that notes are not end-to-end encrypted.
 - Checks that the vault has no `.md` files. If it has, it says so and lets
   the member continue; see V3.
 - On desktop, warns when the vault's path is inside iCloud Drive. On iOS the

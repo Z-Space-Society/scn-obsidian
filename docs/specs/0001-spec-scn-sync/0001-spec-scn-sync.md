@@ -1,7 +1,9 @@
 # 0001 Spec: SCN Sync (the Obsidian plugin)
 
-Status: draft, 2026-10-08. Revised 2026-10-24 against relay v0.2.1, which
-shipped after the first draft.
+Status: implemented. Drafted 2026-10-08 and revised 2026-10-24 against relay
+v0.2.1, which shipped after the first draft. SCN Sync was released through
+BRAT from 0.2.0 and listed in Obsidian's community directory at 1.0.2 on
+2026-10-26.
 
 ## Goal
 
@@ -561,9 +563,10 @@ the editor's buffer stands in for the file:
   still holds what was read; otherwise the note is queued again with the
   newer text, so keystrokes typed meanwhile are never undone.
 
-**Unverified** inside Obsidian. If it does not hold up, the fallback is to
-delay an inbound write to an open note until the member stops typing, and
-accept a moment of staleness.
+Verified by check 5 on 2026-10-26, with 1.0.2: typing in a note while an
+MCP append arrived kept the cursor and every keystroke, and both sides held
+the same text. The fallback, delaying an inbound write to an open note until
+the member stops typing, is not needed.
 
 ### O6. Startup reconciliation
 
@@ -817,22 +820,26 @@ Everything else is the same code.
 
 ## Module layout
 
-Proposed, to be adjusted when written:
-
 | File | Holds |
 |---|---|
-| `src/main.ts` | Plugin lifecycle, registration, wiring |
-| `src/auth.ts` | Discovery, PKCE, callback, token exchange, refresh |
+| `src/main.ts` | Plugin lifecycle, registration, wiring, the status surfaces |
+| `src/auth.ts` | S1 to S6: discovery, PKCE, callback, token exchange, refresh |
+| `src/connection.ts` | N1, N2, N4: the socket to the relay and its reconnection |
 | `src/relay.ts` | `requestUrl` calls to the relay: vault list |
-| `src/repo.ts` | WASM start, `Repo`, storage, adapter swap, reconnect |
-| `src/schema.ts` | Document shapes, name rules, collision rule |
+| `src/schema.ts` | D1 to D5: document shapes, name rules, collision rule |
 | `src/tree.ts` | Walking folder documents, path to URL map |
-| `src/state.ts` | Per-note state store, `data.json` |
-| `src/sync/outbound.ts` | O3, O5 outbound |
-| `src/sync/inbound.ts` | O4, O5 inbound |
-| `src/sync/structure.ts` | T1 to T5 |
-| `src/sync/reconcile.ts` | O6, V3, L3 |
+| `src/state.ts` | What is kept in `data.json` |
+| `src/notes.ts` | L2 per-note state, and the file access the sync works through |
+| `src/idb.ts` | The per-note store in IndexedDB (L1) |
+| `src/vaultfiles.ts` | Files through Obsidian's Vault API, and the editor path (O5) |
+| `src/diff.ts` | The difference between two texts as splices |
+| `src/messages.ts` | An error as the member reads it |
+| `src/sync/sync.ts` | V3, O3, O4, O6, and structure changes T1 to T5 |
+| `src/sync/structure.ts` | Edits to folder documents and new document shapes |
 | `src/ui/` | Setup modal, settings tab, status |
+
+`auth.ts`, `notes.ts` and `sync/` import nothing from `obsidian`, so they run
+under `node --test`.
 
 ## Requests to the other specs
 
@@ -883,7 +890,7 @@ Two in-memory repos joined directly stand in for the plugin and the relay.
 | 2. Concurrent edits to one note merge | Edit both sides while one is offline |
 | 3. A Claude edit through MCP appears in Obsidian, and the reverse | Relay acceptance check 5 |
 | 4. An edit in another editor is picked up | Edit the file in a text editor with Obsidian running, and with it closed |
-| 5. Typing in a note while a remote edit arrives keeps the cursor and every keystroke | O5. Decides whether the fallback is needed. |
+| 5. Typing in a note while a remote edit arrives keeps the cursor and every keystroke | O5. Decides whether the fallback is needed. Passed 2026-10-26 on 1.0.2: the fallback is not needed. |
 | 6. A move made in Finder | Records whether Obsidian reports `rename` or `delete` plus `create` |
 | 7. 500 notes dropped in at once | All arrive; no duplicate documents |
 | 8. The connection survives token expiry | Run past 15 minutes; no gap in sync |
@@ -911,12 +918,24 @@ Run on 0.2.1 and 0.2.2 through BRAT, recorded 2026-10-26:
 | 18. A refresh interrupted by backgrounding | Corliss open question 2. Background the app at the moment of refresh, return after 10 seconds and after 2 minutes. | Skipped by choice. Corliss open question 2 stays open. |
 | 19. Sync TLS | The sync host's certificate is trusted by the phone with no profile installed | Passed. |
 
+### Release check, 1.0.2
+
+1.0.2 changed how sync messages are decoded (cbor-x's no-eval build) and the
+uuid that names new documents (11.1.1). Run 2026-10-26 on the laptop through
+BRAT against production:
+
+- The update reached Up to date.
+- An edit typed in Obsidian reached the relay, and an MCP append reached
+  Obsidian while typing went on (check 5).
+- A new note created in Obsidian: confirmed by Jacob in Obsidian. The note
+  was not seen on the relay over MCP.
+
 ## Open questions
 
 1. **The issuer.** Answered: the relay serves the metadata on the sync
    listener (request 1), so the member pastes one URL.
-2. **The open-editor path.** O5 is the design and is unverified. Check 5
-   decides between it and the fallback.
+2. **The open-editor path.** Answered: check 5 passed, so O5 stands and
+   the fallback is not needed.
 3. **Delete against a concurrent edit.** T5 is a heuristic. A better rule
    needs the relay to say what it holds for a document.
 4. **A move whose mover never returns.** The note stays at two paths on the

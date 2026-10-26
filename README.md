@@ -11,7 +11,9 @@ Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits,
 ## Set up
 
 1. In Obsidian, open Settings, Community plugins, Browse. Search for
-   "SCN Sync", then Install and Enable.
+   "SCN Sync", then Install and Enable. Or open its listing,
+   https://community.obsidian.md/plugins/scn-sync, and choose Add to
+   Obsidian.
 2. In the setup window, paste the sync URL from the Notes page of your SCN
    site and tap Sign in, then Open SCN sign-in.
 3. Sign in at SCN, and return to Obsidian.

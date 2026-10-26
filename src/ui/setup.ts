@@ -1,20 +1,7 @@
-import { App, ButtonComponent, FileSystemAdapter, Modal, Notice, Platform, Setting } from "obsidian";
+import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
 import type ScnSync from "../main.ts";
 import type { Plan } from "../sync/sync.ts";
 import { describe } from "../messages.ts";
-
-// Says what is wrong with where this vault lives, or null. On iOS the path is
-// relative and tells nothing, so the instruction is given instead.
-export function iCloudWarning(app: App): string | null {
-	if (Platform.isIosApp) {
-		return "Keep this vault out of iCloud. Two sync tools on one folder fight over the files.";
-	}
-	const adapter = app.vault.adapter;
-	if (adapter instanceof FileSystemAdapter && /Mobile Documents|iCloud/i.test(adapter.getBasePath())) {
-		return "This vault is in iCloud Drive. Two sync tools on one folder fight over the files. Move the vault out of iCloud Drive before signing in.";
-	}
-	return null;
-}
 
 export class SetupModal extends Modal {
 	plugin: ScnSync;
@@ -37,14 +24,10 @@ export class SetupModal extends Modal {
 		});
 		contentEl.createEl("p", { text: "NOTE: your notes are not end-to-end encrypted." });
 
-		const warning = iCloudWarning(this.app);
-		if (warning) contentEl.createEl("p", { text: warning, cls: "mod-warning" });
-
 		const notes = this.app.vault.getMarkdownFiles().length;
 		if (notes > 0 && !plugin.settings.vaultUrl) {
 			contentEl.createEl("p", {
-				cls: "mod-warning",
-				text: `This vault already holds ${notes} ${notes === 1 ? "note" : "notes"}. SCN Sync is meant for a new, empty vault. If you continue, nothing here is overwritten: a note that differs from the one in your SCN vault is kept as a copy.`,
+				text: `This vault already holds ${notes} ${notes === 1 ? "note" : "notes"}. Nothing here is overwritten: a note that differs from the one in your SCN vault is kept as a copy.`,
 			});
 		}
 

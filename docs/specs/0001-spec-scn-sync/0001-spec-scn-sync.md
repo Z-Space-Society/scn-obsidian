@@ -93,7 +93,8 @@ issue #1. In short:
 
 - `manifest.json` at the repo root, and a GitHub release per version whose
   tag is exactly the manifest version, carrying `main.js`, `manifest.json`
-  and `styles.css`. The tag `0.0.1` belongs to the probe.
+  and `styles.css` when there is one. The tag `0.0.1` belongs to the probe.
+  The first SCN Sync release is `0.2.0`.
 - The README discloses network use (Corliss and the relay, nothing else),
   that an SCN membership is required, and that notes are not end-to-end
   encrypted.
@@ -106,7 +107,8 @@ Until the listing, development builds reach test devices through BRAT.
 
 - One CommonJS `main.js` built with esbuild, as in
   `obsidian-sample-plugin`. A release carries `main.js`, `manifest.json` and
-  `styles.css`. Obsidian downloads nothing else.
+  `styles.css` when there is one. Obsidian downloads nothing else. SCN Sync
+  has no stylesheet: it uses Obsidian's own classes.
 - Automerge is imported from `@automerge/automerge/slim` and
   `@automerge/automerge-repo/slim`. The WASM is inlined from
   `@automerge/automerge/automerge.wasm.base64` and started with

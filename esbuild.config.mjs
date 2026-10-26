@@ -10,6 +10,9 @@ const context = await esbuild.context({
 	entryPoints: ['src/main.ts'],
 	bundle: true,
 	external: ['obsidian', 'electron', ...builtinModules],
+	// cbor-x's own build without eval: the default compiles readers with
+	// new Function, which the community directory's scan flags.
+	alias: { 'cbor-x': 'cbor-x/index-no-eval' },
 	format: 'cjs',
 	target: 'es2021',
 	platform: 'browser',

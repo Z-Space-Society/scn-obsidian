@@ -76,12 +76,17 @@ Pinned dependencies, exact versions, no ranges:
 | `@automerge/automerge-repo-network-websocket` | 2.5.6 |
 | `@automerge/automerge-repo-storage-indexeddb` | 2.5.6 |
 | `@automerge/automerge` | 3.5.0, what 2.5.6 resolves to today |
+| `uuid` | 11.1.1, by `overrides` in `package.json` |
 
 - The plugin speaks the classic automerge-repo WebSocket sync protocol, the
   one samod serves. It must never move to a Subduction release
   (`2.6.0-subduction.*`, `2.7.0-authors.*`), which the relay does not host.
 - npm's `latest` tag for `@automerge/automerge-repo` points at a prerelease.
   An unpinned install gets the wrong line.
+- automerge-repo 2.5.6 asks for uuid ^9, which carries an advisory for
+  `v3`, `v5` and `v6` with a buffer. It calls only `v4`, `validate` and
+  `parse`, the same in uuid 11, and every automerge-repo that moved off
+  uuid 9 is a prerelease. The override clears the advisory.
 - A dependency bump is a change to this spec and needs a sync test against
   the deployed relay.
 
@@ -121,6 +126,12 @@ Until the listing, development builds reach test devices through BRAT.
   socket start inside `workspace.onLayoutReady`.
 - No Node or Electron API anywhere. Hashing uses `SubtleCrypto`.
 - The build must leave no `require` in `main.js` other than `obsidian`.
+- cbor-x, automerge-repo's message encoder, is bundled from its own
+  `cbor-x/index-no-eval` build, so `main.js` has no `new Function`. The
+  wire format is the same.
+- A release is built, attested and published by
+  `.github/workflows/release.yml` when its bare version tag is pushed. The
+  release notes are the annotated tag's message.
 
 ## Setup and first run
 

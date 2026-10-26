@@ -1,0 +1,49 @@
+# Builds, attests and publishes a release when its version tag is pushed.
+# Obsidian downloads from the release whose tag is exactly the manifest
+# version, so only the bare tag runs this; the vX.Y.Z tag on the same commit
+# does not. The release notes are the annotated tag's message.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+
+      - name: Manifest version matches the tag
+        run: test "$(node -p "require('./manifest.json').version")" = "$TAG"
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+
+      # Checkout leaves the tag without its annotation, which holds the notes.
+      - name: Publish the release
+        run: |
+          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+          gh release create "$TAG" main.js manifest.json styles.css --title "SCN Sync $TAG" --notes-from-tag --verify-tag

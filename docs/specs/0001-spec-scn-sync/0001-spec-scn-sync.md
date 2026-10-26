@@ -133,8 +133,9 @@ cannot do.
 3. **User:** install SCN Sync from Community plugins and enable it. During
    development, BRAT stands in for this step.
 4. The plugin opens its setup modal from `onUserEnable`.
-5. The member pastes the sync URL and taps Sign in. The browser opens,
-   Corliss signs them in, and control returns to Obsidian.
+5. The member pastes the sync URL and taps Sign in, then Open SCN sign-in.
+   The browser opens, Corliss signs them in, and control returns to
+   Obsidian.
 6. The plugin lists the member's vaults. The member picks one.
 7. Sync starts. Existing notes download. The member moves notes in as they
    choose.
@@ -183,7 +184,10 @@ issuer.
   syncUrl, startedAt}` with `app.saveLocalStorage`. iOS may end Obsidian
   while the browser is in front, and the callback then starts a fresh plugin
   instance. Tested: a cold-start callback matched its saved state.
-- The browser is opened with `window.open(url)`. Tested on iOS.
+- The browser is opened with `window.open(url)`, called straight from a
+  tap. iOS ignores it once the tap has waited on the network, as discovery
+  does, so sign-in takes two taps: Sign in runs S1 and builds the request,
+  then Open SCN sign-in opens it. Found on the iPhone with 0.2.0.
 - A pending sign-in is valid for 10 minutes and is cleared with
   `saveLocalStorage(key, null)` when used or expired.
 

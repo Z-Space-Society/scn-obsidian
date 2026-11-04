@@ -428,15 +428,17 @@ and the vaults of the workspaces their token names, each with `root_doc_id`,
 null for a private vault), `path`, `created_at` and `last_change_at`, which is
 null for a vault never changed.
 
-`path` is the vault's name under its group, such as `Private/Notes` or
-`Workspaces/SCN Development`, and is where SCN Sync puts it (M2). The relay is
+`path` is the vault's name under its group, such as
+`Workspaces/SCN Development`, or the group alone, `Private`, for the member's
+one private vault, and is where SCN Sync puts it (M2). The private vault's
+`name` is null: it has none of its own. The relay is
 the one place the group names are spelled; the plugin holds no copy of them. A
 relay older than v0.4.2 sends no `path`, and the plugin mounts nothing from it.
 
 ### V2. Connecting
 
 Since 1.1 there is nothing to pick. Connecting syncs every vault the member
-can open, each in its own folder (M1 to M8). "Disconnect from SCN" stops all
+can open, each in its own folder (M1 to M9). "Disconnect from SCN" stops all
 of them and keeps every file. Until 1.0.3 one Obsidian vault connected to one
 relay vault, chosen from the list; M8 is how such a vault moves over.
 
@@ -480,7 +482,7 @@ Each vault is mounted at the folder its `path` names (V1):
 
 ```
 <Obsidian vault>/
-  Private/<vault name>/...
+  Private/...
   Workspaces/<vault name>/...
 ```
 
@@ -491,7 +493,7 @@ to the folder. The vaults share one `Repo` and one connection.
 
 ### M2. Folder names
 
-A folder is the `path` with each of its two segments made safe for a file
+A folder is the `path` with each of its segments (one or two) made safe for a file
 name: `\ / : * ? " < > |` become `-`, and leading dots and spaces go. Two
 vaults whose folders would match, ignoring case, get ` (2)`, ` (3)` in the
 order listed. Each vault's folder is saved in `data.json` by root document ID,
@@ -544,6 +546,23 @@ into), with `vault.rename`. Never link rewriting: two devices rewriting the
 same links would sync the same edit twice. Its note store is kept, since its
 paths were already relative to the root. A vault the relay no longer lists is
 left where it is, unsynced, with a notice.
+
+### M9. Up into the group's folder
+
+From relay v0.5.0 a member has one private vault, whose `path` is `Private`.
+A vault mounted at `Private/<name>` moves up into `Private`:
+
+1. Its record is saved with the new folder and `moving: {from, staging}`
+   before anything moves, so a move cut off part way is finished at the next
+   start instead of mounting a missing folder.
+2. The old folder moves to a staging folder at the root (the vault may hold a
+   folder with the same name as the one it moves out of).
+3. `Private` is removed if empty. Anything left in it was in no vault, so it
+   moves to `Private (outside SCN)`, still unsynced, with a notice.
+4. The staging folder becomes `Private`, and `moving` is cleared.
+
+Every move is expected, so none reads as the member's. The note store is
+kept: its paths are relative to the folder, which holds the same notes.
 
 ## The sync loop
 

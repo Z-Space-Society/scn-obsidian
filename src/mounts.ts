@@ -27,6 +27,10 @@ export interface MountRecord {
 	folder: string;
 	// The IndexedDB name of its note store.
 	store: string;
+	// M9. Set while the vault's folder is moving up into its group's folder,
+	// from `from` by way of `staging`. Saved before the move starts, so a
+	// move cut off part way is finished at the next start.
+	moving?: { from: string; staging: string };
 }
 
 // The part of a listed vault a mount needs.
@@ -96,10 +100,13 @@ export function safeSegment(segment: string): string {
 }
 
 // M2. The folder a relay `path` is mounted at: its group, then its name, each
-// made safe. Null for a path with no group, which this version does not mount.
+// made safe. A path that is a group alone, such as a member's one private
+// vault at `Private`, is mounted at that group's folder. Null for a path
+// that names nothing.
 export function folderOf(path: string): string | null {
 	const slash = path.indexOf("/");
-	if (slash <= 0 || slash === path.length - 1) return null;
+	if (slash === -1) return path.trim() === "" ? null : safeSegment(path);
+	if (slash === 0 || slash === path.length - 1) return null;
 	return `${safeSegment(path.slice(0, slash))}/${safeSegment(path.slice(slash + 1))}`;
 }
 
@@ -220,8 +227,15 @@ export class Mounts {
 
 		for (const vault of usable) {
 			const folder = folders.get(vault.rootDocId)!;
-			const record = this.records[vault.rootDocId];
-			if (record && record.folder !== folder) {
+			let record = this.records[vault.rootDocId];
+			if (record && record.folder !== folder && within(record.folder, folder)) {
+				// M9. The vault's folder becomes its group's folder:
+				// `Private/SCN Notes` is now `Private`. Recorded first, then moved.
+				await this.unmount(vault.rootDocId);
+				record = { ...record, path: vault.path, folder, moving: { from: record.folder, staging: `SCN Sync moving ${Date.now()}` } };
+				this.records[vault.rootDocId] = record;
+				await this.options.saveRecords({ ...this.records });
+			} else if (record && record.folder !== folder) {
 				// Renamed in Corliss. The folder follows; the store's paths are
 				// relative, so it needs nothing.
 				await this.unmount(vault.rootDocId);
@@ -230,6 +244,7 @@ export class Mounts {
 					await files.rename(record.folder, folder);
 				}
 			}
+			if (record?.moving) await this.moveUp(record);
 			this.records[vault.rootDocId] = {
 				url: vault.url,
 				path: vault.path,
@@ -374,6 +389,32 @@ export class Mounts {
 		this.records[legacy.id] = legacy.record;
 		await this.options.saveRecords({ ...this.records });
 		return true;
+	}
+
+	// M9. Finish moving a vault's folder up into its group's folder. Each step
+	// is skipped once done, so a move cut off part way finishes the same way.
+	// The note store is kept: its paths are relative to the mount folder,
+	// which hold the same notes before and after.
+	private async moveUp(record: MountRecord) {
+		const { files } = this.options;
+		const { from, staging } = record.moving!;
+		const to = record.folder;
+		const rename = async (a: string, b: string) => {
+			this.expect(a, b);
+			if (!(await files.rename(a, b))) throw new Error(`could not move ${a} to ${b}`);
+		};
+		if (files.hasFolder(from)) await rename(from, staging);
+		if (!files.hasFolder(staging)) return;
+		await files.removeFolderIfEmpty(to);
+		if (files.hasFolder(to)) {
+			// Files that were in the group's folder but in no vault. They
+			// did not sync before and do not start to now.
+			let aside = `${to} (outside SCN)`;
+			for (let n = 2; files.hasFolder(aside); n++) aside = `${to} (outside SCN ${n})`;
+			await rename(to, aside);
+			this.options.notify(`Files in ${to} that were outside your SCN vaults are now in ${aside}.`);
+		}
+		await rename(staging, to);
 	}
 
 	private expect(from: string, to: string) {

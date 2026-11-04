@@ -72,6 +72,16 @@ describe("the vault list", () => {
 		assert.equal(vault.workspace, null);
 	});
 
+	it("reads a private vault with no name, at the path Private", async () => {
+		const http: Http = async () => ({
+			status: 200,
+			json: { vaults: [{ root_doc_id: "a", url: "automerge:a", name: null, workspace: null, path: "Private" }] },
+		});
+		const [vault] = await listVaults(http, SYNC, "token");
+		assert.equal(vault.name, null);
+		assert.equal(vault.path, "Private");
+	});
+
 	it("is refused as unauthorized on 401", async () => {
 		const http: Http = async () => ({ status: 401, json: null });
 		await assert.rejects(listVaults(http, SYNC, "token"), Unauthorized);

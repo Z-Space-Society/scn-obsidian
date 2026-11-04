@@ -108,7 +108,8 @@ describe("folders", () => {
 		assert.equal(folderOf("Workspaces/SCN Development"), "Workspaces/SCN Development");
 		assert.equal(folderOf("Private/a/b: c?"), "Private/a-b- c-");
 		assert.equal(folderOf("Private/.hidden"), "Private/hidden");
-		assert.equal(folderOf("Notes"), null);
+		assert.equal(folderOf("Private"), "Private");
+		assert.equal(folderOf("/Notes"), null);
 		assert.equal(folderOf(""), null);
 		assert.equal(safeSegment("   "), "Untitled");
 	});
@@ -296,5 +297,64 @@ describe("migrating from 1.0", () => {
 	it("has nothing to migrate when the relay no longer lists the vault", () => {
 		const setup = relayWithTwoVaults();
 		assert.equal(legacyRecord(setup.vaults, {}, "automerge:gone", "legacy-notes"), null);
+	});
+});
+
+describe("one private vault, at Private", () => {
+	// The private vault as relay v0.5.0 lists it: the group alone.
+	const atPrivate = (vaults: MountVault[]) => [{ ...vaults[0], path: "Private" }, vaults[1]];
+
+	it("moves its folder up into Private, keeping its store, and keeps syncing", async () => {
+		const { mounts, files, relay, notes, vaults, saved, asked, stores } = await mounted();
+		const store = saved()[notes.documentId].store;
+		await mounts.update(atPrivate(vaults));
+		await mounts.idle();
+		assert.deepEqual(Object.fromEntries(files.files), {
+			"Private/plan.md": "# Plan\n",
+			"Workspaces/SCN Development/Welcome.md": "Hi Scott and Boris.\n",
+		});
+		assert.equal(saved()[notes.documentId].folder, "Private");
+		assert.equal(saved()[notes.documentId].store, store);
+		assert.equal(saved()[notes.documentId].moving, undefined);
+		assert.ok(stores.has(store));
+		// Nothing to copy or upload, so nothing was asked, and SCN is unchanged.
+		assert.deepEqual(asked, []);
+		assert.deepEqual(await onRelay(relay, notes), { "plan.md": "# Plan\n" });
+
+		files.files.set("Private/plan.md", "# Plan\nMoved up.\n");
+		mounts.fileChanged("Private/plan.md");
+		await eventually(async () => (await onRelay(relay, notes))["plan.md"] === "# Plan\nMoved up.\n", "an edit after the move");
+		assert.equal(Object.keys(await onRelay(relay, notes)).length, 1);
+	});
+
+	it("sets aside files that were in Private but in no vault, unsynced", async () => {
+		const { mounts, files, relay, notes, vaults } = await mounted();
+		files.files.set("Private/stray.md", "not synced\n");
+		await mounts.update(atPrivate(vaults));
+		await mounts.idle();
+		assert.equal(files.files.get("Private/plan.md"), "# Plan\n");
+		assert.equal(files.files.get("Private (outside SCN)/stray.md"), "not synced\n");
+		assert.equal(files.files.has("Private/stray.md"), false);
+		assert.deepEqual(await onRelay(relay, notes), { "plan.md": "# Plan\n" });
+	});
+
+	it("finishes a move cut off part way at the next start", async () => {
+		const first = await mounted();
+		const id = first.notes.documentId;
+		const records = first.saved();
+		await first.mounts.stop();
+		// Cut off after the old folder went to staging, before the rest.
+		const staging = "SCN Sync moving 1";
+		await first.files.rename("Private/Notes", staging);
+		records[id] = { ...records[id], path: "Private", folder: "Private", moving: { from: "Private/Notes", staging } };
+
+		const again = plugin(first, { files: first.files, records, stores: first.stores });
+		await again.mounts.start();
+		await again.mounts.idle();
+		assert.equal(first.files.files.get("Private/plan.md"), "# Plan\n");
+		assert.equal(first.files.hasFolder(staging), false);
+		assert.equal(again.saved()[id].moving, undefined);
+		assert.deepEqual(again.asked, []);
+		assert.deepEqual(await onRelay(first.relay, first.notes), { "plan.md": "# Plan\n" });
 	});
 });

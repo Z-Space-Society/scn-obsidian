@@ -6,11 +6,13 @@ export interface Vault {
 	rootDocId: string;
 	// `automerge:<root_doc_id>`, the root folder document.
 	url: string;
-	name: string;
+	// Null for a member's private vault, which has no name of its own.
+	name: string | null;
 	// The workspace that holds it, or null for one of the member's own.
 	workspace: string | null;
 	// The relay's name for it under its group: "Private/Notes",
-	// "Workspaces/SCN Development". Where SCN Sync puts it (M2). Blank from a
+	// "Workspaces/SCN Development", or "Private" for the member's one private
+	// vault. Where SCN Sync puts it (M2). Blank from a
 	// relay older than v0.4.2, which this version does not mount.
 	path: string;
 	createdAt: string;
@@ -33,7 +35,8 @@ export async function listVaults(http: Http, syncUrl: string, accessToken: strin
 	if (!Array.isArray(list)) throw new Error("The relay's vault list was not in the expected form.");
 	return list.flatMap((item) => {
 		const { root_doc_id, url, name, workspace, path, created_at, last_change_at } = item as Record<string, unknown>;
-		if (typeof root_doc_id !== "string" || typeof url !== "string" || typeof name !== "string") return [];
+		if (typeof root_doc_id !== "string" || typeof url !== "string") return [];
+		if (typeof name !== "string" && name !== null) return [];
 		return [
 			{
 				rootDocId: root_doc_id,

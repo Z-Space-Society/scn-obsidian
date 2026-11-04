@@ -24,7 +24,7 @@ Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits,
 Every vault you can open syncs into this one Obsidian vault, each in its own
 folder:
 
-- `Private/<name>/` for each of your private vaults.
+- `Private/` for your private vault. Only you can read these notes.
 - `Workspaces/<name>/` for each workspace you are in. Everyone in the
   workspace reads and edits these notes.
 
@@ -35,7 +35,9 @@ there. Vault folders are named and removed in Corliss, so renaming or deleting
 one here is undone.
 
 Updating from 1.0 moves the notes of the vault you had connected into
-`Private/<name>/`.
+`Private/`. Since 1.2 each member has one private vault, at `Private/` itself:
+a vault synced at `Private/<name>/` moves up into `Private/` once the relay
+lists it there, with nothing downloaded or uploaded again.
 
 ## Network use
 

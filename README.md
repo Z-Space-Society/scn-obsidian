@@ -6,8 +6,8 @@ Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits,
 
 - An SCN membership. Signing in goes through Corliss, and access stops when
   the membership does.
-- The sync URL shown on Corliss's Notes page. Your private vaults are made
-  there; a workspace's vault is made on the workspace's page.
+- The sync URL shown on Corliss's Notes page. Your private vault is there
+  from the start, and each workspace you are in has its own.
 
 ## Set up
 

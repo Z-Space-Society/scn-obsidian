@@ -486,7 +486,8 @@ Each vault is mounted at the folder its `path` names (V1):
   Workspaces/<vault name>/...
 ```
 
-Notes anywhere else stay on this device and are never sent. Each mounted vault
+Notes anywhere else stay on this device and are never sent; M10 says how the
+member hears of them. Each mounted vault
 syncs through an engine of its own (the sync loop and structure changes below,
 unchanged), which sees only its folder: paths in its note store are relative
 to the folder. The vaults share one `Repo` and one connection.
@@ -513,7 +514,10 @@ the member first, once for a folder however many events it arrives as. Yes:
 the destination gains new notes with the same text, and the note leaves the
 source vault. Cancel puts it back where it was. A note moved out of every vault
 is put back, with a notice, since it would otherwise stop syncing without a
-word. A note brought in from outside every vault is a new note there.
+word. Dropped on a group folder that holds vaults' folders (the workspaces'),
+the notice says to put it inside one of them instead. The move prompt says
+"a new note" or "new notes", as the count is. A note brought in from outside
+every vault is a new note there.
 
 ### M5. Joining and leaving
 
@@ -565,6 +569,46 @@ A vault mounted at `Private/<name>` moves up into `Private`:
 
 Every move is expected, so none reads as the member's. The note store is
 kept: its paths are relative to the folder, which holds the same notes.
+
+### M10. Notes outside every vault
+
+Obsidian makes new notes, daily notes and notes from unresolved links at the
+vault root by default, outside every vault. Such a note stays on this device,
+and the member is told:
+
+1. Every note outside every vault's folder counts as not syncing: the status
+   reads Attention, and the status lists each one. Nothing counts before any
+   vault is known.
+2. A note that lands outside, by being created there or by being moved for
+   the first time while Obsidian runs, is offered a move into the private
+   vault, once per note. A note renamed after its offer keeps it. Notes
+   arriving in one batch of events share one offer. The status offers the
+   same move for each note it lists.
+3. Nothing moves without the member's yes. The note goes to the private
+   vault's folder under its own name, numbered (` 1`, ` 2`) when the name is
+   taken, with `vault.rename` and no link rewriting (M8). It is a new note
+   there.
+
+The private vault is the one listed with no workspace, recorded as `private`
+in its mount record so it is known offline. Its folder is the target; the
+word "Private" is never spelled here.
+
+### M11. Where new notes go
+
+Asked once per device, after a vault list names the private vault: whether
+new notes go in its folder, so they sync. Not asked when new notes already go
+in a vault's folder.
+
+- Yes sets Obsidian's new-note location (`newFileLocation: "folder"`,
+  `newFileFolderPath`, through `vault.setConfig`, undocumented and long
+  stable). The Daily notes folder is set too when that core plugin is on, its
+  settings can be reached (`options` and `saveSettings` on its instance), and
+  its folder is outside every vault. When they cannot be reached, a notice
+  says where to set it.
+- No is kept in `data.json` and the question is not asked again. Closing it
+  unanswered asks again at the next start.
+- The settings tab shows where new notes go, with a button that does what
+  yes does.
 
 ## The sync loop
 
@@ -897,7 +941,7 @@ States:
 | Syncing | Connected, work in progress | None |
 | Up to date | Connected, queues empty | None |
 | Offline | No connection, retrying | None |
-| Attention | Notes not syncing, or the vanished-vault guard | Open the status |
+| Attention | Notes not syncing, notes outside every vault (M10), or the vanished-vault guard | Open the status |
 
 Commands: Sign in, Sign out, Open sync status, Reconnect now, Disconnect
 this vault.

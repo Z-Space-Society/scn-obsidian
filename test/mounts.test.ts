@@ -13,9 +13,10 @@ import {
 	type MountRecord,
 	type MountVault,
 } from "../src/mounts.ts";
+import { newNotesSync, putNewNotesIn, shouldAsk } from "../src/newnotes.ts";
 import { noteText } from "../src/schema.ts";
 import { walk } from "../src/tree.ts";
-import { eventually, folder, note, pipes, relayRepo } from "./helpers.ts";
+import { MemoryLocations, eventually, folder, note, pipes, relayRepo } from "./helpers.ts";
 import { TODAY } from "./setup.ts";
 
 const running: Mounts[] = [];
@@ -32,7 +33,7 @@ function relayWithTwoVaults() {
 	const notes = folder(relay, "Notes", [["plan.md", plan]]);
 	const garden = folder(relay, "SCN Development", [["Welcome.md", welcome]]);
 	const vaults: MountVault[] = [
-		{ rootDocId: notes.documentId, url: notes.url, path: "Private/Notes" },
+		{ rootDocId: notes.documentId, url: notes.url, path: "Private/Notes", private: true },
 		{ rootDocId: garden.documentId, url: garden.url, path: "Workspaces/SCN Development" },
 	];
 	return { relay, pluginEnd, notes, garden, vaults };
@@ -53,6 +54,7 @@ function plugin(
 	const notices: string[] = [];
 	const asked: string[] = [];
 	const moves: CrossMove[] = [];
+	const offers: Array<{ paths: string[]; into: string | null }> = [];
 	let saved: Record<string, MountRecord> = {};
 	const mounts = new Mounts(
 		{
@@ -68,6 +70,7 @@ function plugin(
 			confirm: async (_plan, path) => (asked.push(path), true),
 			confirmDeletes: async () => false,
 			confirmMove: async (move) => (moves.push(move), options.confirmMove ? options.confirmMove(move) : true),
+			offerMove: (paths, into) => void offers.push({ paths, into }),
 			notify: (text) => void notices.push(text),
 			online: () => true,
 			onStatus: () => {},
@@ -76,7 +79,7 @@ function plugin(
 		options.records ?? {},
 	);
 	running.push(mounts);
-	return { mounts, files, stores, notices, asked, moves, repo, saved: () => saved };
+	return { mounts, files, stores, notices, asked, moves, offers, repo, saved: () => saved };
 }
 
 // What the relay's vault holds, path to text.
@@ -365,5 +368,182 @@ describe("one private vault, at Private", () => {
 		assert.equal(again.saved()[id].moving, undefined);
 		assert.deepEqual(again.asked, []);
 		assert.deepEqual(await onRelay(first.relay, first.notes), { "plan.md": "# Plan\n" });
+	});
+});
+
+describe("notes outside every vault", () => {
+	it("are counted as not syncing, and only they are", async () => {
+		const { mounts, files, relay, notes, garden } = await mounted();
+		for (const path of ["2026-11-04.md", "Workspaces/loose.md", "Projects/idea.md"]) {
+			files.files.set(path, "only here\n");
+			mounts.created(path);
+		}
+		await mounts.idle();
+		assert.deepEqual(mounts.outside().sort(), ["2026-11-04.md", "Projects/idea.md", "Workspaces/loose.md"]);
+		assert.deepEqual(await onRelay(relay, notes), { "plan.md": "# Plan\n" });
+		assert.deepEqual(await onRelay(relay, garden), { "Welcome.md": "Hi Scott and Boris.\n" });
+	});
+
+	it("are not counted before any vault is known", () => {
+		const setup = relayWithTwoVaults();
+		const files = new MemoryFiles();
+		files.files.set("2026-11-04.md", "only here\n");
+		const local = plugin(setup, { files });
+		assert.deepEqual(local.mounts.outside(), []);
+	});
+
+	it("are offered a move into the private vault once, and never moved unasked", async () => {
+		const { mounts, files, offers } = await mounted();
+		files.files.set("2026-11-04.md", "today\n");
+		mounts.created("2026-11-04.md");
+		await mounts.idle();
+		assert.deepEqual(offers, [{ paths: ["2026-11-04.md"], into: "Private/Notes" }]);
+
+		await files.rename("2026-11-04.md", "Today.md");
+		mounts.renamed("2026-11-04.md", "Today.md", false);
+		files.files.set("Today.md", "today, edited\n");
+		mounts.fileChanged("Today.md");
+		await mounts.idle();
+		assert.equal(offers.length, 1);
+		assert.equal(files.files.get("Today.md"), "today, edited\n");
+		assert.deepEqual(mounts.outside(), ["Today.md"]);
+	});
+
+	it("are offered once per batch, however many arrive", async () => {
+		const { mounts, files, offers } = await mounted();
+		for (const name of ["a", "b", "c"]) {
+			files.files.set(`Inbox/${name}.md`, `${name}\n`);
+			mounts.created(`Inbox/${name}.md`);
+		}
+		await mounts.idle();
+		assert.equal(offers.length, 1);
+		assert.deepEqual(offers[0].paths.sort(), ["Inbox/a.md", "Inbox/b.md", "Inbox/c.md"]);
+	});
+
+	it("are offered when moved for the first time, if not offered before", async () => {
+		const { mounts, files, offers } = await mounted();
+		// There before Obsidian started, so never created this session.
+		files.files.set("Old.md", "old\n");
+		await files.rename("Old.md", "Workspaces/Old.md");
+		mounts.renamed("Old.md", "Workspaces/Old.md", false);
+		await mounts.idle();
+		assert.deepEqual(offers.map((o) => o.paths), [["Workspaces/Old.md"]]);
+	});
+
+	it("move into the private vault on a yes, as new notes there", async () => {
+		const { mounts, files, relay, notes } = await mounted();
+		files.files.set("2026-11-04.md", "today\n");
+		mounts.created("2026-11-04.md");
+		await mounts.idle();
+		assert.equal(await mounts.moveIntoPrivate("2026-11-04.md"), "Private/Notes/2026-11-04.md");
+		assert.equal(files.files.has("2026-11-04.md"), false);
+		assert.deepEqual(mounts.outside(), []);
+		await eventually(async () => (await onRelay(relay, notes))["2026-11-04.md"] === "today\n", "the note to reach the private vault");
+		// Its own rename event is not a move by the member.
+		mounts.renamed("2026-11-04.md", "Private/Notes/2026-11-04.md", false);
+		await mounts.idle();
+		assert.equal(Object.keys(await onRelay(relay, notes)).length, 2);
+	});
+
+	it("take a free name in the private vault, overwriting nothing", async () => {
+		const { mounts, files, relay, notes } = await mounted();
+		files.files.set("plan.md", "another plan\n");
+		assert.equal(await mounts.moveIntoPrivate("plan.md"), "Private/Notes/plan 1.md");
+		assert.equal(files.files.get("Private/Notes/plan.md"), "# Plan\n");
+		await eventually(async () => (await onRelay(relay, notes))["plan 1.md"] === "another plan\n", "the renamed note to upload");
+		assert.equal((await onRelay(relay, notes))["plan.md"], "# Plan\n");
+	});
+
+	it("are not moved while no private vault is listed", async () => {
+		const setup = relayWithTwoVaults();
+		const local = plugin(setup);
+		await local.mounts.update([setup.vaults[1]]);
+		await eventually(() => local.files.files.has("Workspaces/SCN Development/Welcome.md"), "the workspace to download");
+		local.files.files.set("loose.md", "here\n");
+		local.mounts.created("loose.md");
+		await local.mounts.idle();
+		assert.deepEqual(local.offers, [{ paths: ["loose.md"], into: null }]);
+		assert.equal(await local.mounts.moveIntoPrivate("loose.md"), null);
+		assert.equal(local.files.files.get("loose.md"), "here\n");
+	});
+
+	it("know the private vault offline, from its record", async () => {
+		const first = await mounted();
+		const records = first.saved();
+		await first.mounts.stop();
+		const again = plugin(first, { files: first.files, records, stores: first.stores });
+		await again.mounts.start();
+		assert.equal(again.mounts.privateFolder(), "Private/Notes");
+	});
+});
+
+describe("dropping on a group folder", () => {
+	it("puts back a note moved from a vault onto the workspaces' folder itself", async () => {
+		const { mounts, files, relay, notes } = await mounted();
+		await files.rename("Private/Notes/plan.md", "Workspaces/plan.md");
+		mounts.renamed("Private/Notes/plan.md", "Workspaces/plan.md", false);
+		await mounts.idle();
+		assert.equal(files.files.get("Private/Notes/plan.md"), "# Plan\n");
+		assert.equal(files.files.has("Workspaces/plan.md"), false);
+		assert.deepEqual(await onRelay(relay, notes), { "plan.md": "# Plan\n" });
+	});
+
+	it("brings a note dropped on the private vault's folder into that vault", async () => {
+		const setup = relayWithTwoVaults();
+		const local = plugin(setup);
+		await local.mounts.update([{ ...setup.vaults[0], path: "Private" }, setup.vaults[1]]);
+		await eventually(() => local.files.files.has("Private/plan.md"), "the download");
+		await local.mounts.idle();
+		local.files.files.set("loose.md", "here\n");
+		await local.files.rename("loose.md", "Private/loose.md");
+		local.mounts.renamed("loose.md", "Private/loose.md", false);
+		await local.mounts.idle();
+		assert.equal(local.files.files.get("Private/loose.md"), "here\n");
+		await eventually(async () => (await onRelay(setup.relay, setup.notes))["loose.md"] === "here\n", "the note to upload");
+	});
+});
+
+describe("where new notes go", () => {
+	const vaults = ["Private", "Workspaces/SCN Development"];
+
+	it("is asked when new notes land outside every vault, and only then", () => {
+		const locations = new MemoryLocations();
+		assert.equal(shouldAsk("", "Private", locations, vaults), true);
+		locations.location = "current";
+		assert.equal(shouldAsk("", "Private", locations, vaults), true);
+		assert.equal(shouldAsk("no", "Private", locations, vaults), false);
+		assert.equal(shouldAsk("", null, locations, vaults), false);
+		locations.setNewNotes("Workspaces/SCN Development/Inbox");
+		assert.equal(shouldAsk("", "Private", locations, vaults), false);
+		locations.setNewNotes("Elsewhere");
+		assert.equal(shouldAsk("", "Private", locations, vaults), true);
+	});
+
+	it("puts new notes and daily notes in the private vault on a yes", async () => {
+		const locations = new MemoryLocations();
+		assert.equal(await putNewNotesIn("Private", locations, vaults), false);
+		assert.equal(newNotesSync(locations, vaults), true);
+		assert.equal(locations.folder, "Private");
+		assert.equal(locations.daily, "Private");
+	});
+
+	it("leaves a daily notes folder already in a vault where it is", async () => {
+		const locations = new MemoryLocations();
+		locations.daily = "Workspaces/SCN Development/Journal";
+		await putNewNotesIn("Private", locations, vaults);
+		assert.equal(locations.daily, "Workspaces/SCN Development/Journal");
+	});
+
+	it("leaves daily notes it cannot reach to the member, and does not touch them", async () => {
+		const unreachable = new MemoryLocations();
+		unreachable.daily = undefined;
+		assert.equal(await putNewNotesIn("Private", unreachable, vaults), true);
+		assert.equal(unreachable.daily, undefined);
+		assert.equal(unreachable.folder, "Private");
+
+		const off = new MemoryLocations();
+		off.daily = null;
+		assert.equal(await putNewNotesIn("Private", off, vaults), false);
+		assert.equal(off.daily, null);
 	});
 });

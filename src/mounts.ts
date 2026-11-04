@@ -1,4 +1,4 @@
-// M1 to M7. One Obsidian vault holds every SCN vault the member can open.
+// M1 to M10. One Obsidian vault holds every SCN vault the member can open.
 //
 // Each SCN vault is mounted at the folder its relay `path` names, such as
 // `Private/Notes` or `Workspaces/SCN Development`, and syncs through a `Sync`
@@ -31,6 +31,9 @@ export interface MountRecord {
 	// from `from` by way of `staging`. Saved before the move starts, so a
 	// move cut off part way is finished at the next start.
 	moving?: { from: string; staging: string };
+	// M10. The member's own vault, listed with no workspace: where a note
+	// outside every vault is offered a move to.
+	private?: boolean;
 }
 
 // The part of a listed vault a mount needs.
@@ -38,6 +41,7 @@ export interface MountVault {
 	rootDocId: string;
 	url: string;
 	path: string;
+	private?: boolean;
 }
 
 // A move across the boundary between two vaults, as the member is asked it.
@@ -64,6 +68,10 @@ export interface MountsOptions {
 	confirmDeletes: (paths: string[], vaultPath: string) => Promise<boolean>;
 	// M4. True makes the move; false puts it back.
 	confirmMove: (move: CrossMove) => Promise<boolean>;
+	// M10. Notes that just landed outside every vault, each offered once.
+	// `into` is the private vault's folder, or null when none is known yet.
+	// The member's yes calls `moveIntoPrivate`; nothing moves otherwise.
+	offerMove: (paths: string[], into: string | null) => void;
 	notify: (text: string) => void;
 	online: () => boolean;
 	onStatus: () => void;
@@ -179,6 +187,11 @@ export class Mounts {
 	private expected: Expected[] = [];
 	private renames: Rename[] = [];
 	private renameTimer: ReturnType<typeof setTimeout> | null = null;
+	// M10. Notes outside every vault already offered a move, while Obsidian
+	// runs, and those waiting for the rest of their batch.
+	private offered = new Set<string>();
+	private offers: string[] = [];
+	private offerTimer: ReturnType<typeof setTimeout> | null = null;
 	private updates: Promise<void> = Promise.resolve();
 	private stopped = false;
 	private warnedOld = false;
@@ -192,7 +205,7 @@ export class Mounts {
 	// Mount what was mounted last time, before the relay is asked: a vault
 	// syncs offline and from its own store.
 	start(): Promise<void> {
-		const vaults = Object.entries(this.records).map(([rootDocId, r]) => ({ rootDocId, url: r.url, path: r.path }));
+		const vaults = Object.entries(this.records).map(([rootDocId, r]) => ({ rootDocId, url: r.url, path: r.path, private: r.private }));
 		return this.update(vaults);
 	}
 
@@ -250,6 +263,7 @@ export class Mounts {
 				path: vault.path,
 				folder,
 				store: record?.store ?? this.options.newStoreName(vault.rootDocId),
+				...(vault.private ? { private: true } : {}),
 			};
 		}
 		await this.options.saveRecords({ ...this.records });
@@ -309,6 +323,7 @@ export class Mounts {
 	async stop() {
 		this.stopped = true;
 		if (this.renameTimer !== null) clearTimeout(this.renameTimer);
+		if (this.offerTimer !== null) clearTimeout(this.offerTimer);
 		for (const id of [...this.mounts.keys()]) await this.unmount(id);
 	}
 
@@ -333,7 +348,8 @@ export class Mounts {
 
 	created(path: string) {
 		const mount = this.owner(path);
-		mount?.sync.created(this.relative(mount, path));
+		if (mount) mount.sync.created(this.relative(mount, path));
+		else if (this.isOutside(path)) this.offer([path]);
 	}
 
 	fileChanged(path: string) {
@@ -348,7 +364,10 @@ export class Mounts {
 			return;
 		}
 		const mount = this.owner(path);
-		if (!mount) return;
+		if (!mount) {
+			for (const p of [...this.offered]) if (within(p, path)) this.offered.delete(p);
+			return;
+		}
 		// The events of a vault folder's own deletion can arrive before the
 		// folder's: by then the folder is gone, and none of them is passed on.
 		if (!this.options.files.hasFolder(mount.record.folder)) {
@@ -468,13 +487,96 @@ export class Mounts {
 			} else if (source) {
 				// M4. Out of every vault: it would stop syncing without a word.
 				await this.putBack(from, to);
-				this.options.notify(`${to} is outside your SCN vaults. Moved back.`);
+				const group = this.groupHolding(to);
+				this.options.notify(
+					group
+						? `${group} holds workspace folders only. Put notes inside one of them. Moved back.`
+						: `${to} is outside your SCN vaults. Moved back.`,
+				);
 			} else if (destination) {
 				// Brought into a vault from outside: new notes there.
 				for (const path of this.filesUnder(to, folder)) destination.sync.created(this.relative(destination, path));
+			} else {
+				// M10. From outside to outside. A note already offered a move
+				// keeps that; one not offered yet is offered now.
+				const fresh: string[] = [];
+				for (const path of this.filesUnder(to, folder)) {
+					const old = moved(path, to, from);
+					if (this.offered.delete(old)) this.offered.add(path);
+					else if (this.isOutside(path)) fresh.push(path);
+				}
+				if (fresh.length > 0) this.offer(fresh);
 			}
 		}
 		this.options.onStatus();
+	}
+
+	// M4. The group folder `path` is in, when that folder holds vaults' folders
+	// of its own (the workspaces' group), so the member aimed at the group
+	// instead of a vault in it. Taken from the vaults' folders, never named.
+	private groupHolding(path: string): string | null {
+		for (const { folder } of Object.values(this.records)) {
+			const slash = folder.indexOf("/");
+			if (slash === -1) continue;
+			const group = folder.slice(0, slash);
+			if (within(path, group)) return group;
+		}
+		return null;
+	}
+
+	// --- M10. Notes outside every vault ------------------------------------
+
+	// The private vault's folder, from the vault listed with no workspace.
+	privateFolder(): string | null {
+		return Object.values(this.records).find((record) => record.private)?.folder ?? null;
+	}
+
+	// A note no vault holds. Nothing is outside before any vault is known.
+	isOutside(path: string): boolean {
+		const records = Object.values(this.records);
+		if (records.length === 0 || !this.options.files.synced(path)) return false;
+		return !records.some((record) => within(path, record.folder));
+	}
+
+	// Every note outside every vault: on this device only, not syncing.
+	outside(): string[] {
+		if (Object.keys(this.records).length === 0) return [];
+		return this.options.files.list().filter((path) => this.isOutside(path));
+	}
+
+	// Offered once per note, once per batch of events.
+	private offer(paths: string[]) {
+		this.offers.push(...paths);
+		this.offerTimer ??= setTimeout(() => {
+			this.offerTimer = null;
+			const batch = [...new Set(this.offers)].filter((path) => !this.offered.has(path) && this.isOutside(path));
+			this.offers = [];
+			if (batch.length === 0 || this.stopped) return;
+			for (const path of batch) this.offered.add(path);
+			this.options.offerMove(batch, this.privateFolder());
+		}, EVENT_BATCH_MS);
+	}
+
+	// Only on the member's yes: the note goes to the private vault's folder
+	// under its own name, numbered if that name is taken, and is a new note
+	// there. Returns where it went, or null when it did not move.
+	async moveIntoPrivate(path: string): Promise<string | null> {
+		const { files } = this.options;
+		const id = Object.entries(this.records).find(([, record]) => record.private)?.[0];
+		const mount = id ? this.mounts.get(id) : undefined;
+		if (!mount || !this.isOutside(path) || (await files.read(path)) === null) return null;
+		const name = path.slice(path.lastIndexOf("/") + 1);
+		const dot = name.lastIndexOf(".");
+		const [stem, extension] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+		let to = `${mount.record.folder}/${name}`;
+		for (let n = 1; (await files.read(to)) !== null || files.hasFolder(to); n++) {
+			to = `${mount.record.folder}/${stem} ${n}${extension}`;
+		}
+		this.expect(path, to);
+		if (!(await files.rename(path, to))) return null;
+		this.offered.delete(path);
+		mount.sync.created(this.relative(mount, to));
+		return to;
 	}
 
 	// M4. A note cannot move between vaults: a workspace's vault admits only
@@ -533,7 +635,9 @@ export class Mounts {
 	// For tests and a status that settles.
 	async idle() {
 		await this.updates;
-		while (this.renameTimer !== null) await new Promise((resolve) => setTimeout(resolve, EVENT_BATCH_MS));
+		while (this.renameTimer !== null || this.offerTimer !== null) {
+			await new Promise((resolve) => setTimeout(resolve, EVENT_BATCH_MS));
+		}
 		await Promise.all([...this.mounts.values()].map(({ sync }) => sync.idle()));
 	}
 }

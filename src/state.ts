@@ -2,6 +2,7 @@
 // in SecretStorage and the access token only in memory (S4).
 
 import type { MountRecord } from "./mounts.ts";
+import type { NewNotesAnswer } from "./newnotes.ts";
 
 export interface Settings {
 	// `https://<sync host>`, the one value the member pastes.
@@ -26,6 +27,8 @@ export interface Settings {
 	// Names this vault's IndexedDB databases. IndexedDB is shared by every
 	// vault Obsidian opens, so the vault's name alone would not do.
 	storeId: string;
+	// M11. The answer to "put new notes in the private vault?", asked once.
+	newNotesAnswer: NewNotesAnswer;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -39,6 +42,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	vaultUrl: "",
 	vaultName: "",
 	storeId: "",
+	newNotesAnswer: "",
 };
 
 // V4. A connected vault belongs to the member who connected it. Another

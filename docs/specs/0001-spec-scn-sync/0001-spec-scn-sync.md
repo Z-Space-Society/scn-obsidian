@@ -131,9 +131,10 @@ the README: a push to `main` does not change it.
 - cbor-x, automerge-repo's message encoder, is bundled from its own
   `cbor-x/index-no-eval` build, so `main.js` has no `new Function`. The
   wire format is the same.
-- A release is built, attested and published by
-  `.github/workflows/release.yml` when its bare version tag is pushed. The
-  release notes are the annotated tag's message.
+- A release is cut with `gh release create X.Y.Z --generate-notes`, the tag
+  a bare version matching `manifest.json`. Publishing it runs
+  `.github/workflows/release.yml`, which builds and attests the plugin's files
+  and attaches them to the release; it is installable once they are.
 
 ## Setup and first run
 

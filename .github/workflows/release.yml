@@ -1,14 +1,14 @@
-# Builds, attests and publishes a release when its version tag is pushed.
+# Builds, attests and attaches the plugin's files to a release when it is
+# published, as `gh release create 1.1.0 --generate-notes` publishes one.
 # Obsidian downloads from the release whose tag is exactly the manifest
-# version, so only the bare tag runs this; the vX.Y.Z tag on the same commit
-# does not. The release notes are the annotated tag's message.
+# version, and installs the files attached to it, so a release is installable
+# once this has run.
 
 name: Release
 
 on:
-  push:
-    tags:
-      - "[0-9]+.[0-9]+.[0-9]+"
+  release:
+    types: [published]
 
 permissions:
   contents: write
@@ -19,17 +19,22 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
-      TAG: ${{ github.ref_name }}
+      TAG: ${{ github.event.release.tag_name }}
       GH_TOKEN: ${{ github.token }}
     steps:
+      # The release event checks out the release's tag.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
 
-      - name: Manifest version matches the tag
-        run: test "$(node -p "require('./manifest.json').version")" = "$TAG"
+      # A bare X.Y.Z, matching the manifest: a `v` tag or a mismatched version
+      # is a release Obsidian would never find.
+      - name: Tag is the manifest version
+        run: |
+          [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "release tag $TAG is not a bare X.Y.Z"; exit 1; }
+          test "$(node -p "require('./manifest.json').version")" = "$TAG"
 
       - run: npm ci
       - run: npm test
@@ -42,8 +47,5 @@ jobs:
             manifest.json
             styles.css
 
-      # Checkout leaves the tag without its annotation, which holds the notes.
-      - name: Publish the release
-        run: |
-          git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
-          gh release create "$TAG" main.js manifest.json styles.css --title "SCN Sync $TAG" --notes-from-tag --verify-tag
+      - name: Attach the files to the release
+        run: gh release upload "$TAG" main.js manifest.json styles.css --clobber

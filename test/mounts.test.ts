@@ -149,6 +149,15 @@ describe("mounting", () => {
 		assert.deepEqual(await onRelay(relay, notes), { "plan.md": "# Plan\n" });
 	});
 
+	it("makes the folder of a vault with no notes yet", async () => {
+		const setup = relayWithTwoVaults();
+		const empty = folder(setup.relay, "New Workspace", []);
+		const local = plugin(setup);
+		await local.mounts.update([...setup.vaults, { rootDocId: empty.documentId, url: empty.url, path: "Workspaces/New Workspace" }]);
+		await local.mounts.idle();
+		assert.equal(local.files.hasFolder("Workspaces/New Workspace"), true);
+	});
+
 	it("leaves a file outside every vault alone", async () => {
 		const { mounts, files, relay, notes, garden } = await mounted();
 		files.files.set("Scratch.md", "only here\n");

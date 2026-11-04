@@ -55,6 +55,8 @@ export interface Files {
 	hasFolder(path: string): boolean;
 	// Removes the folder only if nothing at all is left in it.
 	removeFolderIfEmpty(path: string): Promise<void>;
+	// Makes the folder and any missing parents. Nothing when it is there.
+	makeFolder(path: string): Promise<void>;
 	// Whether a path is one the sync acts on: markdown, and no dot-prefixed
 	// segment, which covers the config folder and the trash.
 	synced(path: string): boolean;
@@ -118,6 +120,10 @@ export class MemoryFiles implements Files {
 
 	async removeFolderIfEmpty(path: string) {
 		if (this.under(path).length === 0) this.folders.delete(path);
+	}
+
+	async makeFolder(path: string) {
+		if (path !== "") this.addParents(`${path}/x`);
 	}
 
 	list() {

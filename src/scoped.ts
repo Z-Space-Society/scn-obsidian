@@ -56,6 +56,10 @@ export class ScopedFiles implements Files {
 		await this.base.removeFolderIfEmpty(this.full(path));
 	}
 
+	makeFolder(path: string) {
+		return this.base.makeFolder(this.full(path));
+	}
+
 	synced(path: string) {
 		return this.base.synced(this.full(path));
 	}

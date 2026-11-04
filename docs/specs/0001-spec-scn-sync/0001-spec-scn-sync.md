@@ -421,15 +421,23 @@ procedure, V3, against the vault it was already connected to.
 ### V1. Listing
 
 `GET https://<sync host>/vaults` with the access token as a bearer, through
-`requestUrl`. The answer is `{"vaults": [...]}`, the member's own, each with
-`root_doc_id`, `url` (`automerge:<root_doc_id>`), `name`, `created_at` and
-`last_change_at`, which is null for a vault never changed.
+`requestUrl`. The answer is `{"vaults": [...]}`: the member's private vaults
+and the vaults of the workspaces their token names, each with `root_doc_id`,
+`url` (`automerge:<root_doc_id>`), `name`, `workspace` (the workspace's ID, or
+null for a private vault), `path`, `created_at` and `last_change_at`, which is
+null for a vault never changed.
 
-### V2. Picking
+`path` is the vault's name under its group, such as `Private/Notes` or
+`Workspaces/SCN Development`, and is where SCN Sync puts it (M2). The relay is
+the one place the group names are spelled; the plugin holds no copy of them. A
+relay older than v0.4.2 sends no `path`, and the plugin mounts nothing from it.
 
-The member picks one. The plugin saves its root URL and name in `data.json`.
-One Obsidian vault connects to one relay vault. Changing it is "Disconnect"
-followed by a new connect, and Disconnect keeps every file.
+### V2. Connecting
+
+Since 1.1 there is nothing to pick. Connecting syncs every vault the member
+can open, each in its own folder (M1 to M8). "Disconnect from SCN" stops all
+of them and keeps every file. Until 1.0.3 one Obsidian vault connected to one
+relay vault, chosen from the list; M8 is how such a vault moves over.
 
 ### V3. The connect procedure
 
@@ -450,8 +458,9 @@ Used for a first connect and for a lost store.
    out through the normal outbound path (O3).
 
 A member is told how many notes will be downloaded, adopted, copied and
-uploaded before step 3 runs, and confirms. Nothing in this procedure deletes
-or overwrites a local file without a copy.
+uploaded before step 3 runs, and confirms, when anything would be copied or
+uploaded (M6). Nothing in this procedure deletes or overwrites a local file
+without a copy.
 
 ### V4. One member per local store
 
@@ -459,6 +468,81 @@ or overwrites a local file without a copy.
 returns a different DID, the plugin refuses to sync and says the vault is
 connected as another member. The member disconnects first. Without this,
 every push would be denied by the relay one document at a time.
+
+## Mounts
+
+One Obsidian vault holds every SCN vault the member can open.
+
+### M1. Layout
+
+Each vault is mounted at the folder its `path` names (V1):
+
+```
+<Obsidian vault>/
+  Private/<vault name>/...
+  Workspaces/<vault name>/...
+```
+
+Notes anywhere else stay on this device and are never sent. Each mounted vault
+syncs through an engine of its own (the sync loop and structure changes below,
+unchanged), which sees only its folder: paths in its note store are relative
+to the folder. The vaults share one `Repo` and one connection.
+
+### M2. Folder names
+
+A folder is the `path` with each of its two segments made safe for a file
+name: `\ / : * ? " < > |` become `-`, and leading dots and spaces go. Two
+vaults whose folders would match, ignoring case, get ` (2)`, ` (3)` in the
+order listed. Each vault's folder is saved in `data.json` by root document ID,
+with its URL, `path` and note store, so it mounts at the same place at the
+next start, offline included.
+
+### M3. Scoped files
+
+An engine's files are the Obsidian vault's, with the folder prefixed on the way
+in and removed on the way out. It never removes its own folder.
+
+### M4. Moving between vaults
+
+A note cannot move from one vault to another: a workspace's vault admits only
+documents created for it. A move from one vault's folder into another's asks
+the member first, once for a folder however many events it arrives as. Yes:
+the destination gains new notes with the same text, and the note leaves the
+source vault. Cancel puts it back where it was. A note moved out of every vault
+is put back, with a notice, since it would otherwise stop syncing without a
+word. A note brought in from outside every vault is a new note there.
+
+### M5. Joining and leaving
+
+The list is asked for at start, each time the connection opens, and every
+fifteen minutes. A vault new to the list is mounted. A vault whose `path`
+changed, a workspace renamed in Corliss, has its folder renamed to match. A
+vault gone from the list, because the member left the workspace or the vault
+went, stops syncing: its note store is deleted and its folder is kept, with a
+notice. Offline or refused, what is mounted stays mounted.
+
+### M6. Asking to connect
+
+A vault connects (V3) without asking when nothing would be copied or uploaded:
+downloading into an empty folder, or finding every file already matching. So a
+workspace the member joins appears without a question. A plan that copies or
+uploads is shown, as V3 says.
+
+### M7. Vault folders
+
+Renaming a group folder or a vault's folder here is put back, with a notice:
+only Corliss names vaults. Deleting one deletes nothing on SCN: the vault's
+store is cleared and it is downloaded again.
+
+### M8. From 1.0
+
+A vault 1.0 connected had its notes at the root. At the first vault list, its
+notes move into the folder its `path` names, by way of a staging folder of
+their own (the vault may hold a folder with the same name as the one it moves
+into), with `vault.rename`. Never link rewriting: two devices rewriting the
+same links would sync the same edit twice. Its note store is kept, since its
+paths were already relative to the root. A vault the relay no longer lists is
+left where it is, unsynced, with a notice.
 
 ## The sync loop
 

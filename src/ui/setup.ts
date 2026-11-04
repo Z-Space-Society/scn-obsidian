@@ -1,5 +1,6 @@
 import { App, ButtonComponent, Modal, Notice, Setting } from "obsidian";
 import type ScnSync from "../main.ts";
+import type { CrossMove } from "../mounts.ts";
 import type { Plan } from "../sync/sync.ts";
 import { describe } from "../messages.ts";
 
@@ -24,24 +25,22 @@ export class SetupModal extends Modal {
 		});
 		contentEl.createEl("p", { text: "NOTE: your notes are not end-to-end encrypted." });
 
-		const notes = this.app.vault.getMarkdownFiles().length;
-		if (notes > 0 && !plugin.settings.vaultUrl) {
-			contentEl.createEl("p", {
-				text: `This vault already holds ${notes} ${notes === 1 ? "note" : "notes"}. Nothing here is overwritten: a note that differs from the one in your SCN vault is kept as a copy.`,
-			});
-		}
+		contentEl.createEl("p", {
+			text: "Your private vaults appear in a Private folder, and each workspace you are in appears in a Workspaces folder. Notes outside those two folders stay on this device.",
+		});
 
 		if (plugin.signedIn()) {
+			const { connected } = plugin.settings;
 			new Setting(contentEl)
 				.setName("Signed in")
-				.setDesc(plugin.settings.vaultUrl ? `Connected to ${plugin.settings.vaultName}.` : "No vault chosen yet.")
+				.setDesc(connected ? "Syncing with SCN." : "Not syncing yet.")
 				.addButton((b) =>
 					b
-						.setButtonText(plugin.settings.vaultUrl ? "Done" : "Choose vault")
+						.setButtonText(connected ? "Done" : "Connect")
 						.setCta()
 						.onClick(() => {
 							this.close();
-							if (!plugin.settings.vaultUrl) new VaultPickModal(this.app, plugin).open();
+							if (!connected) void plugin.connect();
 						}),
 				);
 			return;
@@ -95,56 +94,53 @@ export class SetupModal extends Modal {
 	}
 }
 
-export class VaultPickModal extends Modal {
-	plugin: ScnSync;
+// M4. A note moved from one vault's folder into another's cannot simply
+// move: it becomes a new note there, and leaves the vault it was in.
+export class MoveModal extends Modal {
+	private move: CrossMove;
+	private answer: (yes: boolean) => void = () => {};
+	private answered = false;
 
-	constructor(app: App, plugin: ScnSync) {
+	constructor(app: App, move: CrossMove) {
 		super(app);
-		this.plugin = plugin;
+		this.move = move;
 	}
 
-	async onOpen() {
-		const { contentEl, plugin } = this;
-		this.setTitle("Choose a vault");
-		const status = contentEl.createEl("p", { text: "Asking the relay for your vaults…" });
-		let vaults;
-		try {
-			vaults = await plugin.vaults();
-		} catch (e) {
-			status.setText(describe(e));
-			return;
-		}
-		status.remove();
+	ask(): Promise<boolean> {
+		return new Promise((resolve) => {
+			this.answer = resolve;
+			this.open();
+		});
+	}
 
-		if (vaults.length === 0) {
-			const p = contentEl.createEl("p", { text: "You have no vaults yet. Create one on the " });
-			const page = plugin.notesPage();
-			if (page) p.createEl("a", { text: "Notes page", href: page });
-			else p.appendText("Notes page");
-			p.appendText(", then choose it here.");
-			return;
-		}
+	private finish(yes: boolean) {
+		if (this.answered) return;
+		this.answered = true;
+		this.answer(yes);
+		this.close();
+	}
 
-		contentEl.createEl("p", { text: "This Obsidian vault connects to one of them." });
-		for (const vault of vaults) {
-			const changed = vault.lastChangeAt ? new Date(vault.lastChangeAt).toLocaleString() : "never";
-			new Setting(contentEl)
-				.setName(vault.name)
-				.setDesc(`Last change: ${changed}`)
-				.addButton((b) =>
-					b
-						.setButtonText("Connect")
-						.setCta()
-						.onClick(async () => {
-							await plugin.connect(vault);
-							this.close();
-						}),
-				);
-		}
+	onOpen() {
+		const { contentEl, move } = this;
+		const what = move.notes === 1 ? "this note" : `these ${move.notes} notes`;
+		this.setTitle(`Move into ${move.toVault}?`);
+		contentEl.createEl("p", {
+			text: `${what[0].toUpperCase()}${what.slice(1)} would leave ${move.fromVault} and become new notes in ${move.toVault}. Anyone who can open ${move.toVault} can read and change them.`,
+		});
+		contentEl.createEl("p", { text: "Cancel puts it back where it was." });
+		new Setting(contentEl)
+			.addButton((b) => b.setButtonText("Cancel").onClick(() => this.finish(false)))
+			.addButton((b) =>
+				b
+					.setButtonText("Move")
+					.setCta()
+					.onClick(() => this.finish(true)),
+			);
 	}
 
 	onClose() {
 		this.contentEl.empty();
+		this.finish(false);
 	}
 }
 

@@ -7,6 +7,12 @@ export interface Vault {
 	// `automerge:<root_doc_id>`, the root folder document.
 	url: string;
 	name: string;
+	// The workspace that holds it, or null for one of the member's own.
+	workspace: string | null;
+	// The relay's name for it under its group: "Private/Notes",
+	// "Workspaces/SCN Development". Where SCN Sync puts it (M2). Blank from a
+	// relay older than v0.4.2, which this version does not mount.
+	path: string;
 	createdAt: string;
 	lastChangeAt: string | null;
 }
@@ -14,8 +20,8 @@ export interface Vault {
 // The relay refused the access token.
 export class Unauthorized extends Error {}
 
-// V1. `GET /vaults` answers `{"vaults": [...]}`, the member's own and no one
-// else's: the relay takes the DID from the token.
+// V1. `GET /vaults` answers `{"vaults": [...]}`: the member's own and their
+// workspaces', and no one else's. The relay takes both from the token.
 export async function listVaults(http: Http, syncUrl: string, accessToken: string): Promise<Vault[]> {
 	const response = await http({
 		url: `${syncUrl}/vaults`,
@@ -26,13 +32,15 @@ export async function listVaults(http: Http, syncUrl: string, accessToken: strin
 	const list = (response.json as { vaults?: unknown } | null)?.vaults;
 	if (!Array.isArray(list)) throw new Error("The relay's vault list was not in the expected form.");
 	return list.flatMap((item) => {
-		const { root_doc_id, url, name, created_at, last_change_at } = item as Record<string, unknown>;
+		const { root_doc_id, url, name, workspace, path, created_at, last_change_at } = item as Record<string, unknown>;
 		if (typeof root_doc_id !== "string" || typeof url !== "string" || typeof name !== "string") return [];
 		return [
 			{
 				rootDocId: root_doc_id,
 				url,
 				name,
+				workspace: typeof workspace === "string" ? workspace : null,
+				path: typeof path === "string" ? path : "",
 				createdAt: typeof created_at === "string" ? created_at : "",
 				lastChangeAt: typeof last_change_at === "string" ? last_change_at : null,
 			},

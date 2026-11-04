@@ -19,17 +19,22 @@ import {
 import { Connection, type ConnectionState } from "./connection.ts";
 import { IndexedDBNoteStore, deleteDatabase } from "./idb.ts";
 import { describe } from "./messages.ts";
+import { Mounts, type MountVault } from "./mounts.ts";
 import { listVaults, type Vault } from "./relay.ts";
 import { DEFAULT_SETTINGS, signedInAsSomeoneElse, type Settings } from "./state.ts";
 import { ScnSyncSettingTab } from "./ui/settings.ts";
-import { Sync } from "./sync/sync.ts";
-import { ConnectModal, DeleteGuardModal, SetupModal, VaultPickModal } from "./ui/setup.ts";
+import { ConnectModal, DeleteGuardModal, MoveModal, SetupModal } from "./ui/setup.ts";
 import { StatusModal } from "./ui/status.ts";
 import { VaultFiles } from "./vaultfiles.ts";
 
 const PENDING_KEY = "scn-sync-pending-sign-in";
 const TYPING_PAUSE_MS = 500;
 const SECRET_ID = "scn-sync-refresh-token";
+// M5. How often the relay is asked which vaults to mount, besides each time
+// the connection opens.
+const VAULT_LIST_MS = 15 * 60 * 1000;
+// How long a notice about a vault stays up.
+const NOTICE_MS = 10_000;
 
 // All HTTP goes through requestUrl: plain fetch is blocked by CORS in the iOS
 // webview.
@@ -52,12 +57,12 @@ const http: Http = async (request) => {
 };
 
 // The states of "Status and errors", as the member reads them.
-export type SyncState = "Not set up" | "Signed out" | "No vault" | "Syncing" | "Up to date" | "Offline" | "Attention";
+export type SyncState = "Not set up" | "Signed out" | "Not connected" | "Syncing" | "Up to date" | "Offline" | "Attention";
 
 const ICONS: Record<SyncState, string> = {
 	"Not set up": "log-in",
 	"Signed out": "log-in",
-	"No vault": "folder-plus",
+	"Not connected": "folder-plus",
 	Syncing: "refresh-cw",
 	"Up to date": "check-circle",
 	Offline: "cloud-off",
@@ -80,16 +85,16 @@ export default class ScnSync extends Plugin {
 	// The setup modal while it is open, so a sign-in finishing in the
 	// background can close it.
 	setupModal: SetupModal | null = null;
-	// Present while syncing.
-	sync: Sync | null = null;
+	// Present while syncing: every mounted vault (M1).
+	mounts: Mounts | null = null;
 	connectionState: ConnectionState | null = null;
 	// When the status last reached Up to date, this session.
 	lastSynced: number | null = null;
 	private repo: Repo | null = null;
 	private connection: Connection | null = null;
-	private noteStore: IndexedDBNoteStore | null = null;
 	private starting: Promise<void> | null = null;
 	private wasm: Promise<void> | null = null;
+	private refreshing: Promise<void> = Promise.resolve();
 	private files!: VaultFiles;
 	// Typing in an open note, per path, waiting to be sent.
 	private typing = new Map<string, number>();
@@ -100,6 +105,9 @@ export default class ScnSync extends Plugin {
 	async onload() {
 		const saved = (await this.loadData()) as Partial<Settings> | null;
 		this.settings = { ...DEFAULT_SETTINGS, ...saved };
+		// M8. A vault 1.0 connected is connected still; its notes move into
+		// their folder once the relay has said where.
+		if (this.settings.vaultUrl) this.settings.connected = true;
 		this.files = new VaultFiles(this.app);
 		this.keeper = new TokenKeeper({
 			http,
@@ -129,19 +137,19 @@ export default class ScnSync extends Plugin {
 			},
 		});
 		this.addCommand({
-			id: "choose-vault",
-			name: "Choose vault",
+			id: "connect",
+			name: "Connect to SCN",
 			checkCallback: (checking) => {
-				if (!this.signedIn() || this.settings.vaultUrl) return false;
-				if (!checking) new VaultPickModal(this.app, this).open();
+				if (!this.signedIn() || this.settings.connected) return false;
+				if (!checking) void this.connect();
 				return true;
 			},
 		});
 		this.addCommand({
 			id: "disconnect",
-			name: "Disconnect this vault",
+			name: "Disconnect from SCN",
 			checkCallback: (checking) => {
-				if (!this.settings.vaultUrl) return false;
+				if (!this.settings.connected) return false;
 				if (!checking) void this.disconnect();
 				return true;
 			},
@@ -177,25 +185,25 @@ export default class ScnSync extends Plugin {
 			const { vault } = this.app;
 			this.registerEvent(
 				vault.on("create", (file) => {
-					if (file instanceof TFile) this.sync?.created(file.path);
+					if (file instanceof TFile) this.mounts?.created(file.path);
 					this.showStatus();
 				}),
 			);
 			this.registerEvent(
 				vault.on("delete", (file) => {
-					this.sync?.deleted(file.path, file instanceof TFolder);
+					this.mounts?.deleted(file.path, file instanceof TFolder);
 					this.showStatus();
 				}),
 			);
 			this.registerEvent(
 				vault.on("rename", (file, oldPath) => {
-					this.sync?.renamed(oldPath, file.path, file instanceof TFolder);
+					this.mounts?.renamed(oldPath, file.path, file instanceof TFolder);
 					this.showStatus();
 				}),
 			);
 			this.registerEvent(
 				this.app.vault.on("modify", (file) => {
-					if (file instanceof TFile && this.files.synced(file.path)) this.sync?.fileChanged(file.path);
+					if (file instanceof TFile && this.files.synced(file.path)) this.mounts?.fileChanged(file.path);
 				}),
 			);
 			// O5. The buffer of an open note is sent as it is typed, half a
@@ -209,13 +217,14 @@ export default class ScnSync extends Plugin {
 						path,
 						window.setTimeout(() => {
 							this.typing.delete(path);
-							this.sync?.fileChanged(path);
+							this.mounts?.fileChanged(path);
 						}, TYPING_PAUSE_MS),
 					);
 				}),
 			);
 			void this.startSync();
 		});
+		this.registerInterval(window.setInterval(() => void this.refreshVaults(), VAULT_LIST_MS));
 	}
 
 	onunload() {
@@ -265,7 +274,7 @@ export default class ScnSync extends Plugin {
 			const did = subjectOf(tokens.accessToken);
 			if (signedInAsSomeoneElse(this.settings, did)) {
 				throw new SignInError(
-					`This vault is connected to ${this.settings.vaultName} as another member. Disconnect it first, then sign in.`,
+					"This vault is connected to SCN as another member. Disconnect it first, then sign in.",
 				);
 			}
 			this.keeper.adopt(tokens);
@@ -278,7 +287,7 @@ export default class ScnSync extends Plugin {
 			await this.save();
 			new Notice("SCN Sync: signed in.");
 			this.setupModal?.close();
-			if (!this.settings.vaultUrl) new VaultPickModal(this.app, this).open();
+			if (!this.settings.connected) void this.connect();
 			else void this.startSync();
 		} catch (e) {
 			new Notice(`SCN Sync: ${describe(e)}`, 0);
@@ -289,26 +298,27 @@ export default class ScnSync extends Plugin {
 		return listVaults(http, this.settings.syncUrl, await this.keeper.accessToken());
 	}
 
-	// V2. One Obsidian vault connects to one relay vault.
-	async connect(vault: Vault) {
-		this.settings.vaultUrl = vault.url;
-		this.settings.vaultName = vault.name;
+	// M1. This Obsidian vault syncs every SCN vault the member can open, each
+	// in the folder its relay path names. Nothing outside those folders syncs.
+	async connect() {
+		this.settings.connected = true;
 		await this.save();
 		await this.startSync();
 	}
 
-	// Keeps every file. The repo and the per-note state go, so a later
-	// connect starts from the connect procedure. Choosing another vault is a
-	// disconnect, then a connect.
+	// Keeps every file. The repo and every vault's note store go, so a later
+	// connect starts from the connect procedure.
 	async disconnect() {
 		await this.stopSync();
 		if (this.settings.storeId) {
-			await deleteDatabase(this.storeName());
-			await deleteDatabase(`${this.storeName()}-notes`);
+			const stores = [
+				this.storeName(),
+				`${this.storeName()}-notes`,
+				...Object.values(this.settings.mounts).map((record) => record.store),
+			];
+			for (const name of stores) await deleteDatabase(name);
 		}
-		this.settings.vaultUrl = "";
-		this.settings.vaultName = "";
-		this.settings.storeId = "";
+		Object.assign(this.settings, { connected: false, mounts: {}, vaultUrl: "", vaultName: "", storeId: "" });
 		await this.save();
 	}
 
@@ -329,7 +339,7 @@ export default class ScnSync extends Plugin {
 	}
 
 	private async runSync() {
-		if (this.sync || !this.settings.vaultUrl || !this.signedIn()) {
+		if (this.mounts || !this.settings.connected || !this.signedIn()) {
 			this.showStatus();
 			return;
 		}
@@ -343,6 +353,8 @@ export default class ScnSync extends Plugin {
 		// iOS refused it in testing.
 		void navigator.storage?.persist?.().catch(() => false);
 
+		// One repo and one socket for every vault: document IDs are unique
+		// across them, and the relay checks each document on its own.
 		const repo = new Repo({ storage: new IndexedDBStorageAdapter(this.storeName()), network: [] });
 		const connection = new Connection({
 			repo,
@@ -351,66 +363,132 @@ export default class ScnSync extends Plugin {
 			onState: (state) => {
 				const was = this.connectionState;
 				this.connectionState = state;
-				if ((state === "online") !== (was === "online")) this.sync?.connectionChanged(state === "online");
+				if ((state === "online") !== (was === "online")) {
+					this.mounts?.connectionChanged(state === "online");
+					// M5. Each time the connection opens, the token behind it
+					// says which workspaces this member is in now.
+					if (state === "online") void this.refreshVaults();
+				}
 				if (state === "signed out" && was !== "signed out") {
 					new Notice("SCN Sync: signed out. Sign in again to keep syncing.", 0);
 				}
 				this.showStatus();
 			},
 		});
-		const noteStore = new IndexedDBNoteStore(`${this.storeName()}-notes`);
-		let declined = false;
-		const sync = new Sync({
-			repo,
-			rootUrl: this.settings.vaultUrl,
-			files: this.files,
-			store: noteStore,
-			confirm: (plan) => new ConnectModal(this.app, plan, this.settings.vaultName).ask(),
-			confirmDeletes: (paths) => new DeleteGuardModal(this.app, paths, this.settings.vaultName).ask(),
-			online: () => this.connection?.state === "online",
-			onStatus: () => {
-				if (sync.declined && !declined) {
-					declined = true;
-					void this.disconnect();
-				}
-				this.showStatus();
+		const notice = (text: string) => new Notice(`SCN Sync: ${text}`, NOTICE_MS);
+		const mounts = new Mounts(
+			{
+				repo,
+				files: this.files,
+				openStore: (name) => new IndexedDBNoteStore(name),
+				deleteStore: (name) => deleteDatabase(name),
+				newStoreName: (rootDocId) => `${this.storeName()}-notes-${rootDocId}`,
+				saveRecords: async (records) => {
+					this.settings.mounts = records;
+					await this.save();
+				},
+				confirm: (plan, path) => new ConnectModal(this.app, plan, path).ask(),
+				confirmDeletes: (paths, path) => new DeleteGuardModal(this.app, paths, path).ask(),
+				confirmMove: (move) => new MoveModal(this.app, move).ask(),
+				notify: notice,
+				online: () => this.connection?.state === "online",
+				onStatus: () => this.showStatus(),
+				today: localDate,
 			},
-			today: localDate,
-		});
-		Object.assign(this, { repo, connection, noteStore, sync });
+			this.settings.mounts,
+		);
+		Object.assign(this, { repo, connection, mounts });
 		connection.start();
-		await sync.start();
+		await mounts.start();
+		void this.refreshVaults();
+	}
+
+	// M5. Mount what the relay lists now. Offline, or refused, what is mounted
+	// stays mounted and syncs when the connection comes back. One at a time:
+	// start and the connection opening both ask, and two migrations (M8) at
+	// once would move the first one's folder into the second's.
+	refreshVaults(): Promise<void> {
+		const next = this.refreshing.then(() => this.refreshOnce());
+		this.refreshing = next.catch((e) => console.error("SCN Sync: refreshing vaults failed", e));
+		return this.refreshing;
+	}
+
+	private async refreshOnce() {
+		const { mounts } = this;
+		if (!mounts || !this.signedIn()) return;
+		let listed: Vault[];
+		try {
+			listed = await this.vaults();
+		} catch {
+			return;
+		}
+		if (this.mounts !== mounts) return;
+		const vaults: MountVault[] = listed.map(({ rootDocId, url, path }) => ({ rootDocId, url, path }));
+		// M8, once, and only against a relay that names paths.
+		if (this.settings.vaultUrl && vaults.every((vault) => vault.path !== "")) {
+			const name = this.settings.vaultName;
+			const moved = await mounts.migrate(vaults, this.settings.vaultUrl, `${this.storeName()}-notes`, (folder) =>
+				this.moveRoot(folder),
+			);
+			if (moved) {
+				new Notice(`SCN Sync: ${name} now syncs in its own folder, beside any workspaces you are in.`, 0);
+			} else {
+				await deleteDatabase(`${this.storeName()}-notes`);
+				new Notice(`SCN Sync: ${name} is no longer on SCN. Its notes stay here and do not sync.`, 0);
+			}
+			this.settings.vaultUrl = "";
+			this.settings.vaultName = "";
+			await this.save();
+		}
+		await mounts.update(vaults);
+	}
+
+	// M8. Everything at the root goes into the folder, by way of a folder of
+	// its own: the vault being moved may hold a folder with the same name as
+	// the one it moves into. `vault.rename`, never link rewriting: two devices
+	// rewriting the same links would sync the same edit twice.
+	private async moveRoot(folder: string) {
+		const mounts = this.mounts!;
+		const staging = `SCN Sync moving ${Date.now()}`;
+		for (const child of [...this.app.vault.getRoot().children]) {
+			const to = `${staging}/${child.name}`;
+			mounts.expectMove(child.path, to);
+			await this.files.rename(child.path, to);
+		}
+		if (!this.files.hasFolder(staging)) return;
+		mounts.expectMove(staging, folder);
+		await this.files.rename(staging, folder);
 	}
 
 	async stopSync() {
 		await this.starting?.catch(() => {});
-		const { sync, connection, repo, noteStore } = this;
-		Object.assign(this, { sync: null, connection: null, repo: null, noteStore: null, connectionState: null });
-		sync?.stop();
+		const { mounts, connection, repo } = this;
+		Object.assign(this, { mounts: null, connection: null, repo: null, connectionState: null });
+		await mounts?.stop();
 		connection?.stop();
 		await repo?.shutdown().catch(() => {});
-		await noteStore?.close();
 		this.showStatus();
 	}
 
 	state(): SyncState {
-		const { settings, sync, connectionState } = this;
-		if (!settings.vaultUrl) return this.signedIn() ? "No vault" : "Not set up";
+		const { settings, mounts, connectionState } = this;
+		if (!settings.connected) return this.signedIn() ? "Not connected" : "Not set up";
 		if (!this.signedIn() || connectionState === "signed out") return "Signed out";
-		if (sync && (sync.guard.length > 0 || sync.notSynced.size > 0)) return "Attention";
+		if (mounts && (mounts.guarding() > 0 || mounts.notSynced().length > 0)) return "Attention";
 		if (connectionState === "offline") return "Offline";
-		if (!sync || sync.working || sync.unsent().length > 0 || connectionState !== "online") return "Syncing";
+		if (!mounts || mounts.working || mounts.unsent().length > 0 || connectionState !== "online") return "Syncing";
 		return "Up to date";
 	}
 
 	statusText(): string {
 		const state = this.state();
-		const { sync } = this;
-		if (state === "Attention" && sync) {
-			if (sync.guard.length > 0) return `${state}: ${sync.guard.length} notes missing here`;
-			return `${state}: ${sync.notSynced.size} not syncing`;
+		const { mounts } = this;
+		if (state === "Attention" && mounts) {
+			const guarding = mounts.guarding();
+			if (guarding > 0) return `${state}: ${guarding} notes missing here`;
+			return `${state}: ${mounts.notSynced().length} not syncing`;
 		}
-		const unsent = sync?.unsent().length ?? 0;
+		const unsent = mounts?.unsent().length ?? 0;
 		if (state === "Syncing" && unsent > 0) return `${state}, ${unsent} not uploaded`;
 		return state;
 	}
@@ -428,15 +506,14 @@ export default class ScnSync extends Plugin {
 			this.ribbonEl.setAttribute("aria-label", text);
 		}
 		// N5. Only this needs the member to act; the guard asks in its modal.
-		const problem = this.sync?.vaultProblem() ?? false;
+		const problem = this.mounts?.vaultProblem() ?? false;
 		if (problem && !this.vaultProblemShown) {
 			new Notice("SCN Sync: several notes are not available from SCN. Check the vault on Corliss's Notes page.", 0);
 		}
 		this.vaultProblemShown = problem;
 	}
 
-	// The link for a member with no vault. Corliss's Notes page is the only
-	// place vaults are made.
+	// Corliss's Notes page, the only place a private vault is made.
 	notesPage(): string | null {
 		return this.settings.issuer ? `${this.settings.issuer}/notes/` : null;
 	}

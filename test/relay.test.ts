@@ -20,8 +20,19 @@ describe("the vault list", () => {
 							root_doc_id: "4NMNnkMhL8jXrdJ9jamS58PAVdXu",
 							url: "automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu",
 							name: "SCN Notes",
+							workspace: null,
+							path: "Private/SCN Notes",
 							created_at: "2026-10-15T21:27:41.881368Z",
 							last_change_at: null,
+						},
+						{
+							root_doc_id: "7xQ2",
+							url: "automerge:7xQ2",
+							name: "SCN Development",
+							workspace: "3",
+							path: "Workspaces/SCN Development",
+							created_at: "2026-11-04T18:00:00Z",
+							last_change_at: "2026-11-04T18:05:00Z",
 						},
 					],
 				},
@@ -34,10 +45,31 @@ describe("the vault list", () => {
 				rootDocId: "4NMNnkMhL8jXrdJ9jamS58PAVdXu",
 				url: "automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu",
 				name: "SCN Notes",
+				workspace: null,
+				path: "Private/SCN Notes",
 				createdAt: "2026-10-15T21:27:41.881368Z",
 				lastChangeAt: null,
 			},
+			{
+				rootDocId: "7xQ2",
+				url: "automerge:7xQ2",
+				name: "SCN Development",
+				workspace: "3",
+				path: "Workspaces/SCN Development",
+				createdAt: "2026-11-04T18:00:00Z",
+				lastChangeAt: "2026-11-04T18:05:00Z",
+			},
 		]);
+	});
+
+	it("reads a relay older than v0.4.2 as naming no path", async () => {
+		const http: Http = async () => ({
+			status: 200,
+			json: { vaults: [{ root_doc_id: "a", url: "automerge:a", name: "Notes" }] },
+		});
+		const [vault] = await listVaults(http, SYNC, "token");
+		assert.equal(vault.path, "");
+		assert.equal(vault.workspace, null);
 	});
 
 	it("is refused as unauthorized on 401", async () => {
@@ -56,5 +88,11 @@ describe("one member per vault", () => {
 
 	it("lets anyone sign in to a vault not yet connected", () => {
 		assert.equal(signedInAsSomeoneElse({ ...connected, vaultUrl: "" }, "did:plc:bob"), false);
+	});
+
+	it("holds for a vault connected the 1.1 way, to every SCN vault", () => {
+		const mounted = { ...DEFAULT_SETTINGS, did: "did:plc:alice", connected: true };
+		assert.equal(signedInAsSomeoneElse(mounted, "did:plc:bob"), true);
+		assert.equal(signedInAsSomeoneElse(mounted, "did:plc:alice"), false);
 	});
 });

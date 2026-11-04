@@ -255,7 +255,11 @@ export class Mounts {
 		await this.options.saveRecords({ ...this.records });
 
 		for (const vault of usable) {
-			if (!this.mounts.has(vault.rootDocId) && !this.declined.has(vault.rootDocId)) this.mount(vault.rootDocId);
+			if (this.mounts.has(vault.rootDocId) || this.declined.has(vault.rootDocId)) continue;
+			// A vault with no notes yet still shows, so its first note can be
+			// made in it. Notes make their folders; an empty vault has none.
+			await files.makeFolder(this.records[vault.rootDocId].folder);
+			this.mount(vault.rootDocId);
 		}
 		this.options.onStatus();
 	}

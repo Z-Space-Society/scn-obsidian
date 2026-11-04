@@ -75,9 +75,13 @@ export class VaultFiles implements Files {
 		return true;
 	}
 
-	private async makeParents(path: string) {
+	private makeParents(path: string) {
+		return this.makeFolder(path.split("/").slice(0, -1).join("/"));
+	}
+
+	async makeFolder(path: string) {
 		const { vault } = this.app;
-		const segments = path.split("/").slice(0, -1);
+		const segments = path === "" ? [] : path.split("/");
 		for (let i = 1; i <= segments.length; i++) {
 			const folder = segments.slice(0, i).join("/");
 			if (!vault.getFolderByPath(folder)) await vault.createFolder(folder);

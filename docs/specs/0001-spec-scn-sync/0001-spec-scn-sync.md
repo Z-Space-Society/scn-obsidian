@@ -518,7 +518,9 @@ word. A note brought in from outside every vault is a new note there.
 ### M5. Joining and leaving
 
 The list is asked for at start, each time the connection opens, and every
-fifteen minutes. A vault new to the list is mounted. A vault whose `path`
+fifteen minutes. A vault new to the list is mounted, and its folder is made
+even when it holds no notes yet, so a new workspace shows and its first note
+can be made in it. A vault whose `path`
 changed, a workspace renamed in Corliss, has its folder renamed to match. A
 vault gone from the list, because the member left the workspace or the vault
 went, stops syncing: its note store is deleted and its folder is kept, with a

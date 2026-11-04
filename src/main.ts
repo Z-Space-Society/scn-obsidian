@@ -20,10 +20,11 @@ import { Connection, type ConnectionState } from "./connection.ts";
 import { IndexedDBNoteStore, deleteDatabase } from "./idb.ts";
 import { describe } from "./messages.ts";
 import { Mounts, type MountVault } from "./mounts.ts";
+import { ObsidianLocations, newNotesSync, putNewNotesIn, shouldAsk, type NoteLocations } from "./newnotes.ts";
 import { listVaults, type Vault } from "./relay.ts";
 import { DEFAULT_SETTINGS, signedInAsSomeoneElse, type Settings } from "./state.ts";
 import { ScnSyncSettingTab } from "./ui/settings.ts";
-import { ConnectModal, DeleteGuardModal, MoveModal, SetupModal } from "./ui/setup.ts";
+import { ConnectModal, DeleteGuardModal, MoveModal, NewNotesModal, SetupModal } from "./ui/setup.ts";
 import { StatusModal } from "./ui/status.ts";
 import { VaultFiles } from "./vaultfiles.ts";
 
@@ -101,6 +102,9 @@ export default class ScnSync extends Plugin {
 	private statusEl!: HTMLElement;
 	private ribbonEl!: HTMLElement;
 	private vaultProblemShown = false;
+	// M11. Asked at most once while Obsidian runs, however the question ends.
+	private newNotesAsked = false;
+	locations!: NoteLocations;
 
 	async onload() {
 		const saved = (await this.loadData()) as Partial<Settings> | null;
@@ -109,6 +113,7 @@ export default class ScnSync extends Plugin {
 		// their folder once the relay has said where.
 		if (this.settings.vaultUrl) this.settings.connected = true;
 		this.files = new VaultFiles(this.app);
+		this.locations = new ObsidianLocations(this.app);
 		this.keeper = new TokenKeeper({
 			http,
 			secrets: {
@@ -390,6 +395,7 @@ export default class ScnSync extends Plugin {
 				confirm: (plan, path) => new ConnectModal(this.app, plan, path).ask(),
 				confirmDeletes: (paths, path) => new DeleteGuardModal(this.app, paths, path).ask(),
 				confirmMove: (move) => new MoveModal(this.app, move).ask(),
+				offerMove: (paths, into) => this.offerMove(paths, into),
 				notify: notice,
 				online: () => this.connection?.state === "online",
 				onStatus: () => this.showStatus(),
@@ -423,7 +429,12 @@ export default class ScnSync extends Plugin {
 			return;
 		}
 		if (this.mounts !== mounts) return;
-		const vaults: MountVault[] = listed.map(({ rootDocId, url, path }) => ({ rootDocId, url, path }));
+		const vaults: MountVault[] = listed.map(({ rootDocId, url, path, workspace }) => ({
+			rootDocId,
+			url,
+			path,
+			private: workspace === null,
+		}));
 		// M8, once, and only against a relay that names paths.
 		if (this.settings.vaultUrl && vaults.every((vault) => vault.path !== "")) {
 			const name = this.settings.vaultName;
@@ -441,6 +452,75 @@ export default class ScnSync extends Plugin {
 			await this.save();
 		}
 		await mounts.update(vaults);
+		await this.askAboutNewNotes();
+	}
+
+	// M10. Notes that landed outside every vault, offered a move into the
+	// private vault. Nothing moves unless the member taps Move.
+	private offerMove(paths: string[], into: string | null) {
+		const what = paths.length === 1 ? `${paths[0]} is` : `${paths.length} notes are`;
+		const fragment = createFragment((f) => {
+			f.createDiv({ text: `SCN Sync: ${what} in no SCN vault and will stay on this device.` });
+			if (!into) return;
+			f.createEl("button", { text: `Move to ${into}`, cls: "mod-cta" }).addEventListener("click", () => {
+				void this.moveIntoPrivate(paths);
+			});
+		});
+		new Notice(fragment, 0);
+	}
+
+	// M10. Into the private vault's folder, as new notes there.
+	async moveIntoPrivate(paths: string[]) {
+		const { mounts } = this;
+		if (!mounts) return;
+		const missed: string[] = [];
+		for (const path of paths) if ((await mounts.moveIntoPrivate(path)) === null) missed.push(path);
+		if (missed.length > 0) new Notice(`SCN Sync: could not move ${missed.join(", ")}. Move it into a vault's folder by hand.`, NOTICE_MS);
+		this.showStatus();
+		this.onChange?.();
+	}
+
+	// M11. The private vault's folder, from the vault listed with no workspace.
+	privateFolder(): string | null {
+		return Object.values(this.settings.mounts).find((record) => record.private)?.folder ?? null;
+	}
+
+	vaultFolders(): string[] {
+		return Object.values(this.settings.mounts).map((record) => record.folder);
+	}
+
+	newNotesSync(): boolean {
+		return newNotesSync(this.locations, this.vaultFolders());
+	}
+
+	// M11. Once per device: a no is remembered, and a dismissed question is
+	// asked again only at the next start.
+	private async askAboutNewNotes() {
+		const into = this.privateFolder();
+		if (this.newNotesAsked || !shouldAsk(this.settings.newNotesAnswer, into, this.locations, this.vaultFolders())) return;
+		this.newNotesAsked = true;
+		const yes = await new NewNotesModal(this.app, into!).ask();
+		if (yes === null) return;
+		if (yes) await this.putNewNotesInPrivate();
+		else {
+			this.settings.newNotesAnswer = "no";
+			await this.save();
+		}
+	}
+
+	// M11. Also the settings tab's button.
+	async putNewNotesInPrivate() {
+		const into = this.privateFolder();
+		if (!into) return;
+		const dailyByHand = await putNewNotesIn(into, this.locations, this.vaultFolders());
+		this.settings.newNotesAnswer = "yes";
+		await this.save();
+		new Notice(
+			dailyByHand
+				? `SCN Sync: new notes now go in ${into}. To sync daily notes too, set the folder under Settings, Daily notes, New file location to ${into}.`
+				: `SCN Sync: new notes now go in ${into}, so they sync.`,
+			dailyByHand ? 0 : NOTICE_MS,
+		);
 	}
 
 	// M8. Everything at the root goes into the folder, by way of a folder of
@@ -474,7 +554,7 @@ export default class ScnSync extends Plugin {
 		const { settings, mounts, connectionState } = this;
 		if (!settings.connected) return this.signedIn() ? "Not connected" : "Not set up";
 		if (!this.signedIn() || connectionState === "signed out") return "Signed out";
-		if (mounts && (mounts.guarding() > 0 || mounts.notSynced().length > 0)) return "Attention";
+		if (mounts && (mounts.guarding() > 0 || mounts.notSynced().length > 0 || mounts.outside().length > 0)) return "Attention";
 		if (connectionState === "offline") return "Offline";
 		if (!mounts || mounts.working || mounts.unsent().length > 0 || connectionState !== "online") return "Syncing";
 		return "Up to date";
@@ -486,7 +566,7 @@ export default class ScnSync extends Plugin {
 		if (state === "Attention" && mounts) {
 			const guarding = mounts.guarding();
 			if (guarding > 0) return `${state}: ${guarding} notes missing here`;
-			return `${state}: ${mounts.notSynced().length} not syncing`;
+			return `${state}: ${mounts.notSynced().length + mounts.outside().length} not syncing`;
 		}
 		const unsent = mounts?.unsent().length ?? 0;
 		if (state === "Syncing" && unsent > 0) return `${state}, ${unsent} not uploaded`;

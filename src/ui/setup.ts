@@ -26,7 +26,7 @@ export class SetupModal extends Modal {
 		contentEl.createEl("p", { text: "NOTE: your notes are not end-to-end encrypted." });
 
 		contentEl.createEl("p", {
-			text: "Your private vaults appear in a Private folder, and each workspace you are in appears in a Workspaces folder. Notes outside those two folders stay on this device.",
+			text: "Your private vault is the Private folder, and each workspace you are in appears in a Workspaces folder. Notes outside those folders stay on this device.",
 		});
 
 		if (plugin.signedIn()) {
@@ -122,10 +122,11 @@ export class MoveModal extends Modal {
 
 	onOpen() {
 		const { contentEl, move } = this;
-		const what = move.notes === 1 ? "this note" : `these ${move.notes} notes`;
+		const one = move.notes === 1;
+		const what = one ? "This note" : `These ${move.notes} notes`;
 		this.setTitle(`Move into ${move.toVault}?`);
 		contentEl.createEl("p", {
-			text: `${what[0].toUpperCase()}${what.slice(1)} would leave ${move.fromVault} and become new notes in ${move.toVault}. Anyone who can open ${move.toVault} can read and change them.`,
+			text: `${what} would leave ${move.fromVault} and become ${one ? "a new note" : "new notes"} in ${move.toVault}. Anyone who can open ${move.toVault} can read and change ${one ? "it" : "them"}.`,
 		});
 		contentEl.createEl("p", { text: "Cancel puts it back where it was." });
 		new Setting(contentEl)
@@ -141,6 +142,55 @@ export class MoveModal extends Modal {
 	onClose() {
 		this.contentEl.empty();
 		this.finish(false);
+	}
+}
+
+// M11. Asked once: whether new notes go in the private vault's folder, so
+// they sync. True or false is the member's answer; null, closed unanswered.
+export class NewNotesModal extends Modal {
+	private into: string;
+	private answer: (yes: boolean | null) => void = () => {};
+	private answered = false;
+
+	constructor(app: App, into: string) {
+		super(app);
+		this.into = into;
+	}
+
+	ask(): Promise<boolean | null> {
+		return new Promise((resolve) => {
+			this.answer = resolve;
+			this.open();
+		});
+	}
+
+	private finish(yes: boolean | null) {
+		if (this.answered) return;
+		this.answered = true;
+		this.answer(yes);
+		this.close();
+	}
+
+	onOpen() {
+		const { contentEl, into } = this;
+		this.setTitle(`Put new notes in ${into}?`);
+		contentEl.createEl("p", {
+			text: `Obsidian puts new notes, and notes made from a link, outside your SCN vaults, where they stay on this device. In ${into} they sync. Daily notes follow when their folder can be set from here.`,
+		});
+		contentEl.createEl("p", { text: "You can change this later in SCN Sync's settings." });
+		new Setting(contentEl)
+			.addButton((b) => b.setButtonText("No").onClick(() => this.finish(false)))
+			.addButton((b) =>
+				b
+					.setButtonText(`Use ${into}`)
+					.setCta()
+					.onClick(() => this.finish(true)),
+			);
+	}
+
+	onClose() {
+		this.contentEl.empty();
+		this.finish(null);
 	}
 }
 

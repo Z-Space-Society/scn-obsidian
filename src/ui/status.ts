@@ -4,7 +4,7 @@ import type ScnSync from "../main.ts";
 export interface StatusRow {
 	name: string;
 	desc: string;
-	button?: { text: string; onClick: () => void };
+	button?: { text: string; onClick: () => unknown };
 }
 
 // What syncs and what does not, for the settings tab and the status modal.
@@ -29,15 +29,31 @@ export function statusRows(plugin: ScnSync): StatusRow[] {
 		});
 	}
 	for (const [path, reason] of mounts.notSynced()) rows.push({ name: path, desc: reason });
+	// M10. On this device only, with the one move that makes it sync.
+	const into = mounts.privateFolder();
+	for (const path of mounts.outside()) {
+		rows.push({
+			name: path,
+			desc: "In no SCN vault. Stays on this device.",
+			button: into ? { text: `Move to ${into}`, onClick: () => plugin.moveIntoPrivate([path]) } : undefined,
+		});
+	}
 	for (const path of mounts.unsent()) rows.push({ name: path, desc: "Only here so far. Waiting to upload." });
 	for (const line of mounts.skipped()) rows.push({ name: "Left out", desc: line });
 	return rows;
 }
 
-function renderStatus(el: HTMLElement, plugin: ScnSync) {
+function renderStatus(el: HTMLElement, plugin: ScnSync, redraw: () => void) {
 	for (const { name, desc, button } of statusRows(plugin)) {
 		const row = new Setting(el).setName(name).setDesc(desc);
-		if (button) row.addButton((b) => b.setButtonText(button.text).onClick(button.onClick));
+		if (button) {
+			row.addButton((b) =>
+				b.setButtonText(button.text).onClick(async () => {
+					await button.onClick();
+					redraw();
+				}),
+			);
+		}
 	}
 }
 
@@ -50,10 +66,11 @@ export class StatusModal extends Modal {
 	}
 
 	onOpen() {
+		this.contentEl.empty();
 		this.setTitle("SCN Sync");
 		const paths = Object.values(this.plugin.settings.mounts).map((record) => record.path).sort();
 		if (paths.length) this.contentEl.createEl("p", { text: `Syncing ${paths.join(", ")}.` });
-		renderStatus(this.contentEl, this.plugin);
+		renderStatus(this.contentEl, this.plugin, () => this.onOpen());
 	}
 
 	onClose() {

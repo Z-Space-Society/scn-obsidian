@@ -90,3 +90,29 @@ export async function eventually(check: () => boolean | Promise<boolean>, what: 
 	}
 	throw new Error(`timed out waiting for ${what}`);
 }
+
+// Obsidian's new-note and Daily notes settings, in memory (M11). `daily`
+// undefined stands for a Daily notes plugin whose settings cannot be
+// reached; null for Daily notes turned off.
+export class MemoryLocations {
+	location = "root";
+	folder = "";
+	daily: string | null | undefined = "";
+
+	newNotes() {
+		return { location: this.location, folder: this.folder };
+	}
+
+	setNewNotes(folder: string) {
+		this.location = "folder";
+		this.folder = folder;
+	}
+
+	dailyFolder() {
+		return this.daily;
+	}
+
+	async setDailyFolder(folder: string) {
+		this.daily = folder;
+	}
+}

@@ -9,6 +9,21 @@ function buttonRow(name: string, desc: string, button: (b: ButtonComponent) => v
 	return { name, desc, render: (setting) => void setting.setName(name).setDesc(desc).addButton(button) };
 }
 
+// M11. Where new notes go, and the button that puts them in the private
+// vault's folder.
+function newNotesRow(plugin: ScnSync): SettingDefinition {
+	const into = plugin.privateFolder();
+	const syncing = plugin.newNotesSync();
+	const { folder } = plugin.locations.newNotes();
+	const desc = syncing ? `They go in ${folder}, so they sync.` : "They go outside your SCN vaults and stay on this device.";
+	return buttonRow("New notes", desc, (b) => {
+		b.setButtonText(into ? `Put in ${into}` : "Put in your private vault")
+			.setDisabled(syncing || !into)
+			// Saving redraws this tab.
+			.onClick(() => void plugin.putNewNotesInPrivate());
+	});
+}
+
 // Every step of setup is here too, so a dismissed modal loses nothing.
 // Declarative, so the settings show in Obsidian's settings search.
 export class ScnSyncSettingTab extends PluginSettingTab {
@@ -49,6 +64,7 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 							buttonRow("Syncing with SCN", "Disconnecting keeps every file.", (b) => {
 								b.setButtonText("Disconnect").onClick(() => void plugin.disconnect());
 							}),
+							newNotesRow(plugin),
 							// M2. Each mounted vault and its folder, as the relay names it.
 							...Object.values(settings.mounts)
 								.sort((a, b) => a.path.localeCompare(b.path))

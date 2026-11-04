@@ -1,6 +1,6 @@
 import { App, ButtonComponent, PluginSettingTab, type SettingDefinition, type SettingDefinitionItem } from "obsidian";
 import type ScnSync from "../main.ts";
-import { SetupModal, VaultPickModal } from "./setup.ts";
+import { SetupModal } from "./setup.ts";
 import { statusRows } from "./status.ts";
 
 // A row with a button. Obsidian searches the name and description given
@@ -43,23 +43,29 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 			},
 			{
 				type: "group",
-				heading: "Vault",
-				items: [
-					settings.vaultUrl
-						? buttonRow(settings.vaultName, "This Obsidian vault is connected to it. Disconnecting keeps every file.", (b) => {
+				heading: "Vaults",
+				items: settings.connected
+					? [
+							buttonRow("Syncing with SCN", "Disconnecting keeps every file.", (b) => {
 								b.setButtonText("Disconnect").onClick(() => void plugin.disconnect());
-							})
-						: buttonRow("No vault connected", signedIn ? "Choose one of your SCN vaults." : "Sign in first.", (b) => {
-								b.setButtonText("Choose vault")
-									.setDisabled(!signedIn)
-									.onClick(() => new VaultPickModal(this.app, plugin).open());
 							}),
-				],
+							// M2. Each mounted vault and its folder, as the relay names it.
+							...Object.values(settings.mounts)
+								.sort((a, b) => a.path.localeCompare(b.path))
+								.map((record) => ({ name: record.path, desc: `In ${record.folder}`, searchable: false })),
+						]
+					: [
+							buttonRow("Not syncing", signedIn ? "Sync every SCN vault you can open." : "Sign in first.", (b) => {
+								b.setButtonText("Connect")
+									.setDisabled(!signedIn)
+									.onClick(() => void plugin.connect());
+							}),
+						],
 			},
 			{
 				type: "group",
 				heading: "Status",
-				visible: settings.vaultUrl !== "",
+				visible: settings.connected,
 				// Note paths and live counts, not settings to search for.
 				items: statusRows(plugin).map(({ name, desc, button }) => ({
 					...(button

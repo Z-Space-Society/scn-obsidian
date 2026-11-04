@@ -6,7 +6,8 @@ Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits,
 
 - An SCN membership. Signing in goes through Corliss, and access stops when
   the membership does.
-- A vault created on Corliss's Notes page, and the sync URL shown there.
+- The sync URL shown on Corliss's Notes page. Your private vaults are made
+  there; a workspace's vault is made on the workspace's page.
 
 ## Set up
 
@@ -17,7 +18,24 @@ Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits,
 2. In the setup window, paste the sync URL from the Notes page of your SCN
    site and tap Sign in, then Open SCN sign-in.
 3. Sign in at SCN, and return to Obsidian.
-4. Choose your vault and tap Connect.
+
+## Where your notes go
+
+Every vault you can open syncs into this one Obsidian vault, each in its own
+folder:
+
+- `Private/<name>/` for each of your private vaults.
+- `Workspaces/<name>/` for each workspace you are in. Everyone in the
+  workspace reads and edits these notes.
+
+Notes anywhere else in the vault stay on this device. Joining a workspace adds
+its folder; leaving one stops it syncing and keeps its files. Moving a note
+from one vault's folder into another's asks first, and makes it a new note
+there. Vault folders are named and removed in Corliss, so renaming or deleting
+one here is undone.
+
+Updating from 1.0 moves the notes of the vault you had connected into
+`Private/<name>/`.
 
 ## Network use
 

@@ -13,7 +13,7 @@ import {
 	type MountRecord,
 	type MountVault,
 } from "../src/mounts.ts";
-import { newNotesSync, putNewNotesIn, shouldAsk } from "../src/newnotes.ts";
+import { newNotesSync, putNewNotesIn, shouldApply } from "../src/newnotes.ts";
 import { noteText } from "../src/schema.ts";
 import { walk } from "../src/tree.ts";
 import { MemoryLocations, eventually, folder, note, pipes, relayRepo } from "./helpers.ts";
@@ -506,17 +506,12 @@ describe("dropping on a group folder", () => {
 describe("where new notes go", () => {
 	const vaults = ["Private", "Workspaces/SCN Development"];
 
-	it("is asked when new notes land outside every vault, and only then", () => {
-		const locations = new MemoryLocations();
-		assert.equal(shouldAsk("", "Private", locations, vaults), true);
-		locations.location = "current";
-		assert.equal(shouldAsk("", "Private", locations, vaults), true);
-		assert.equal(shouldAsk("no", "Private", locations, vaults), false);
-		assert.equal(shouldAsk("", null, locations, vaults), false);
-		locations.setNewNotes("Workspaces/SCN Development/Inbox");
-		assert.equal(shouldAsk("", "Private", locations, vaults), false);
-		locations.setNewNotes("Elsewhere");
-		assert.equal(shouldAsk("", "Private", locations, vaults), true);
+	it("is set once per device, as soon as the private vault is known", () => {
+		assert.equal(shouldApply("", "Private"), true);
+		assert.equal(shouldApply("", null), false);
+		assert.equal(shouldApply("yes", "Private"), false);
+		// A no from 1.2.2, which asked, is kept.
+		assert.equal(shouldApply("no", "Private"), false);
 	});
 
 	it("puts new notes and daily notes in the private vault on a yes", async () => {

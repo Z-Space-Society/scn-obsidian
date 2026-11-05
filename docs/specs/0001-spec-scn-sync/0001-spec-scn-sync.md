@@ -597,20 +597,23 @@ word "Private" is never spelled here.
 
 ### M11. Where new notes go
 
-Asked once per device, after a vault list names the private vault: whether
-new notes go in its folder, so they sync. Not asked when new notes already go
-in a vault's folder.
+Done once per device, with no question, after a vault list names the private
+vault: new notes go in its folder, so they sync. A member who never noticed
+Obsidian's new-note location would not know what the question meant, and no
+one answered no.
 
-- Yes sets Obsidian's new-note location (`newFileLocation: "folder"`,
+- Obsidian's new-note location is set (`newFileLocation: "folder"`,
   `newFileFolderPath`, through `vault.setConfig`, undocumented and long
-  stable). The Daily notes folder is set too when that core plugin is on, its
-  settings can be reached (`options` and `saveSettings` on its instance), and
-  its folder is outside every vault. When they cannot be reached, a notice
-  says where to set it.
-- No is kept in `data.json` and the question is not asked again. Closing it
-  unanswered asks again at the next start.
-- The settings tab shows where new notes go, with a button that does what
-  yes does.
+  stable), unless new notes already go in a vault's folder. The Daily notes
+  folder is set too when that core plugin is on, its settings can be reached
+  (`options` and `saveSettings` on its instance), and its folder is outside
+  every vault. When they cannot be reached, a notice says where to set it.
+- A notice says new notes now go there and where to change it.
+- It is recorded in `data.json` either way, and not done again: a member who
+  points new notes elsewhere afterwards is left there. A no kept by 1.2.2,
+  which asked, is kept.
+- The settings tab shows where new notes go, with a button that does the
+  same.
 
 ## The sync loop
 

@@ -20,11 +20,11 @@ import { Connection, type ConnectionState } from "./connection.ts";
 import { IndexedDBNoteStore, deleteDatabase } from "./idb.ts";
 import { describe } from "./messages.ts";
 import { Mounts, folderOf, type MountVault } from "./mounts.ts";
-import { ObsidianLocations, newNotesSync, putNewNotesIn, shouldAsk, type NoteLocations } from "./newnotes.ts";
+import { ObsidianLocations, newNotesSync, putNewNotesIn, shouldApply, type NoteLocations } from "./newnotes.ts";
 import { listVaults, type Listing } from "./relay.ts";
 import { DEFAULT_SETTINGS, signedInAsSomeoneElse, type Settings } from "./state.ts";
 import { ScnSyncSettingTab } from "./ui/settings.ts";
-import { ConnectModal, DeleteGuardModal, MoveModal, NewNotesModal, SetupModal } from "./ui/setup.ts";
+import { ConnectModal, DeleteGuardModal, MoveModal, SetupModal } from "./ui/setup.ts";
 import { StatusModal } from "./ui/status.ts";
 import { VaultFiles } from "./vaultfiles.ts";
 
@@ -102,8 +102,6 @@ export default class ScnSync extends Plugin {
 	private statusEl!: HTMLElement;
 	private ribbonEl!: HTMLElement;
 	private vaultProblemShown = false;
-	// M11. Asked at most once while Obsidian runs, however the question ends.
-	private newNotesAsked = false;
 	locations!: NoteLocations;
 
 	async onload() {
@@ -453,7 +451,7 @@ export default class ScnSync extends Plugin {
 		}
 		await mounts.update(vaults);
 		await this.makeFolders(listing.folders);
-		await this.askAboutNewNotes();
+		await this.applyNewNotesOnce();
 	}
 
 	// M5. Each folder the relay groups vaults under, made even with nothing in
@@ -511,19 +509,17 @@ export default class ScnSync extends Plugin {
 		return newNotesSync(this.locations, this.vaultFolders());
 	}
 
-	// M11. Once per device: a no is remembered, and a dismissed question is
-	// asked again only at the next start.
-	private async askAboutNewNotes() {
-		const into = this.privateFolder();
-		if (this.newNotesAsked || !shouldAsk(this.settings.newNotesAnswer, into, this.locations, this.vaultFolders())) return;
-		this.newNotesAsked = true;
-		const yes = await new NewNotesModal(this.app, into!).ask();
-		if (yes === null) return;
-		if (yes) await this.putNewNotesInPrivate();
-		else {
-			this.settings.newNotesAnswer = "no";
-			await this.save();
+	// M11. Once per device, with no question: new notes go in the private
+	// vault's folder, so they sync. Recorded either way, so a member who later
+	// points new notes elsewhere is left there.
+	private async applyNewNotesOnce() {
+		if (!shouldApply(this.settings.newNotesAnswer, this.privateFolder())) return;
+		if (!this.newNotesSync()) {
+			await this.putNewNotesInPrivate();
+			return;
 		}
+		this.settings.newNotesAnswer = "yes";
+		await this.save();
 	}
 
 	// M11. Also the settings tab's button.
@@ -535,8 +531,8 @@ export default class ScnSync extends Plugin {
 		await this.save();
 		new Notice(
 			dailyByHand
-				? `SCN Sync: new notes now go in ${into}. To sync daily notes too, set the folder under Settings, Daily notes, New file location to ${into}.`
-				: `SCN Sync: new notes now go in ${into}, so they sync.`,
+				? `SCN Sync: new notes now go in ${into}, so they sync. To sync daily notes too, set the folder under Settings, Daily notes, New file location to ${into}.`
+				: `SCN Sync: new notes now go in ${into}, so they sync. Change it under Settings, Files and links, Default location for new notes.`,
 			dailyByHand ? 0 : NOTICE_MS,
 		);
 	}

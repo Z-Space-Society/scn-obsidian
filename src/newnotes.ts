@@ -17,7 +17,8 @@ export interface NoteLocations {
 	setDailyFolder(folder: string): Promise<void>;
 }
 
-// Asked once per device; the answer is kept in `data.json`.
+// Done once per device and kept in `data.json`: "yes" once it is done, "no"
+// only from 1.2.2, which asked, and is kept.
 export type NewNotesAnswer = "" | "yes" | "no";
 
 function trimSlashes(folder: string): string {
@@ -35,10 +36,9 @@ export function newNotesSync(locations: NoteLocations, vaultFolders: string[]): 
 	return location === "folder" && inVault(folder, vaultFolders);
 }
 
-// Ask once: not after an answer, not before the private vault is known, and
-// not when new notes already sync.
-export function shouldAsk(answer: NewNotesAnswer, privateFolder: string | null, locations: NoteLocations, vaultFolders: string[]): boolean {
-	return answer === "" && privateFolder !== null && !newNotesSync(locations, vaultFolders);
+// Once per device, as soon as the private vault is known.
+export function shouldApply(answer: NewNotesAnswer, privateFolder: string | null): boolean {
+	return answer === "" && privateFolder !== null;
 }
 
 // New notes go in `folder`, and so do daily notes when their folder is

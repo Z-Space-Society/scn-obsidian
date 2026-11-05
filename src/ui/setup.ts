@@ -145,55 +145,6 @@ export class MoveModal extends Modal {
 	}
 }
 
-// M11. Asked once: whether new notes go in the private vault's folder, so
-// they sync. True or false is the member's answer; null, closed unanswered.
-export class NewNotesModal extends Modal {
-	private into: string;
-	private answer: (yes: boolean | null) => void = () => {};
-	private answered = false;
-
-	constructor(app: App, into: string) {
-		super(app);
-		this.into = into;
-	}
-
-	ask(): Promise<boolean | null> {
-		return new Promise((resolve) => {
-			this.answer = resolve;
-			this.open();
-		});
-	}
-
-	private finish(yes: boolean | null) {
-		if (this.answered) return;
-		this.answered = true;
-		this.answer(yes);
-		this.close();
-	}
-
-	onOpen() {
-		const { contentEl, into } = this;
-		this.setTitle(`Put new notes in ${into}?`);
-		contentEl.createEl("p", {
-			text: `Obsidian puts new notes, and notes made from a link, outside your SCN vaults, where they stay on this device. In ${into} they sync. Daily notes follow when their folder can be set from here.`,
-		});
-		contentEl.createEl("p", { text: "You can change this later in SCN Sync's settings." });
-		new Setting(contentEl)
-			.addButton((b) => b.setButtonText("No").onClick(() => this.finish(false)))
-			.addButton((b) =>
-				b
-					.setButtonText(`Use ${into}`)
-					.setCta()
-					.onClick(() => this.finish(true)),
-			);
-	}
-
-	onClose() {
-		this.contentEl.empty();
-		this.finish(null);
-	}
-}
-
 function count(n: number, one: string, many: string): string {
 	return `${n} ${n === 1 ? one : many}`;
 }

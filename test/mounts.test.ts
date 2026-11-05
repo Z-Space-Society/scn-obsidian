@@ -46,6 +46,7 @@ function plugin(
 		records?: Record<string, MountRecord>;
 		stores?: Map<string, MemoryNoteStore>;
 		confirmMove?: (move: CrossMove) => Promise<boolean>;
+		listed?: string[];
 	} = {},
 ) {
 	const repo = new Repo({ network: [setup.pluginEnd] });
@@ -70,7 +71,9 @@ function plugin(
 			confirm: async (_plan, path) => (asked.push(path), true),
 			confirmDeletes: async () => false,
 			confirmMove: async (move) => (moves.push(move), options.confirmMove ? options.confirmMove(move) : true),
-			offerMove: (paths, into) => void offers.push({ paths, into }),
+			// The offer's own array, so a test sees it follow renames.
+			offerMove: (offer, into) => void offers.push({ paths: offer.paths, into }),
+			listed: () => options.listed ?? [],
 			notify: (text) => void notices.push(text),
 			online: () => true,
 			onStatus: () => {},
@@ -428,6 +431,57 @@ describe("notes outside every vault", () => {
 		mounts.renamed("Old.md", "Workspaces/Old.md", false);
 		await mounts.idle();
 		assert.deepEqual(offers.map((o) => o.paths), [["Workspaces/Old.md"]]);
+	});
+
+	it("move under the name the member gave after the offer", async () => {
+		const { mounts, files, offers, relay, notes } = await mounted();
+		// Obsidian makes the note, then renames it once the member types a name.
+		files.files.set("Untitled.md", "");
+		mounts.created("Untitled.md");
+		await mounts.idle();
+		await files.rename("Untitled.md", "test.md");
+		mounts.renamed("Untitled.md", "test.md", false);
+		files.files.set("test.md", "a test\n");
+		await mounts.idle();
+		assert.equal(offers.length, 1);
+		assert.deepEqual(offers[0].paths, ["test.md"]);
+		assert.equal(await mounts.moveIntoPrivate(offers[0].paths[0]), "Private/Notes/test.md");
+		await eventually(async () => (await onRelay(relay, notes))["test.md"] === "a test\n", "the note to reach the private vault");
+	});
+
+	it("include folders, offered whole and moved with their notes", async () => {
+		const { mounts, files, offers, relay, notes } = await mounted();
+		await files.makeFolder("Untitled");
+		mounts.created("Untitled", true);
+		await mounts.idle();
+		assert.deepEqual(offers.map((o) => o.paths), [["Untitled"]]);
+
+		await files.rename("Untitled", "Projects");
+		mounts.renamed("Untitled", "Projects", true);
+		files.files.set("Projects/idea.md", "an idea\n");
+		mounts.created("Projects/idea.md");
+		await mounts.idle();
+		// One offer, following the folder, and none for the note inside it.
+		assert.deepEqual(offers.map((o) => o.paths), [["Projects"]]);
+
+		assert.equal(await mounts.moveIntoPrivate("Projects"), "Private/Notes/Projects");
+		assert.equal(files.files.get("Private/Notes/Projects/idea.md"), "an idea\n");
+		assert.deepEqual(mounts.outside(), []);
+		await eventually(async () => (await onRelay(relay, notes))["Projects/idea.md"] === "an idea\n", "the folder's note to reach the private vault");
+	});
+
+	it("never include the folders the relay names, or a vault's own", async () => {
+		const setup = relayWithTwoVaults();
+		const local = plugin(setup, { listed: ["Private", "Workspaces"] });
+		// In no workspace: Workspaces holds no vault.
+		await local.mounts.update([setup.vaults[0]]);
+		await local.mounts.idle();
+		for (const folder of ["Workspaces", "Private", "Private/Notes/Inbox"]) {
+			await local.files.makeFolder(folder);
+			local.mounts.created(folder, true);
+		}
+		await local.mounts.idle();
+		assert.deepEqual(local.offers, []);
 	});
 
 	it("move into the private vault on a yes, as new notes there", async () => {

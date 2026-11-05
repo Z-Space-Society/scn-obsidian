@@ -44,6 +44,14 @@ export interface MountVault {
 	private?: boolean;
 }
 
+// M10. One notice's worth of notes and folders outside every vault. Mounts
+// keeps its paths following renames until the member answers, so the answer
+// moves what is there now: Obsidian makes `Untitled.md` and renames it once
+// the member types a name.
+export interface Offer {
+	paths: string[];
+}
+
 // A move across the boundary between two vaults, as the member is asked it.
 export interface CrossMove {
 	from: string;
@@ -68,10 +76,14 @@ export interface MountsOptions {
 	confirmDeletes: (paths: string[], vaultPath: string) => Promise<boolean>;
 	// M4. True makes the move; false puts it back.
 	confirmMove: (move: CrossMove) => Promise<boolean>;
-	// M10. Notes that just landed outside every vault, each offered once.
-	// `into` is the private vault's folder, or null when none is known yet.
-	// The member's yes calls `moveIntoPrivate`; nothing moves otherwise.
-	offerMove: (paths: string[], into: string | null) => void;
+	// M10. Notes and folders that just landed outside every vault, each
+	// offered once. `into` is the private vault's folder, or null when none is
+	// known yet. The member's yes calls `moveIntoPrivate` with the offer's
+	// paths as they are then; nothing moves otherwise.
+	offerMove: (offer: Offer, into: string | null) => void;
+	// M5. The folders the relay groups vaults under, made safe. Never
+	// outside, though they may hold no vault yet.
+	listed: () => string[];
 	notify: (text: string) => void;
 	online: () => boolean;
 	onStatus: () => void;
@@ -187,9 +199,9 @@ export class Mounts {
 	private expected: Expected[] = [];
 	private renames: Rename[] = [];
 	private renameTimer: ReturnType<typeof setTimeout> | null = null;
-	// M10. Notes outside every vault already offered a move, while Obsidian
-	// runs, and those waiting for the rest of their batch.
-	private offered = new Set<string>();
+	// M10. Notes and folders outside every vault already offered a move,
+	// while Obsidian runs, and those waiting for the rest of their batch.
+	private offered = new Map<string, Offer>();
 	private offers: string[] = [];
 	private offerTimer: ReturnType<typeof setTimeout> | null = null;
 	private updates: Promise<void> = Promise.resolve();
@@ -346,8 +358,14 @@ export class Mounts {
 
 	// --- File events ------------------------------------------------------
 
-	created(path: string) {
+	created(path: string, folder = false) {
 		const mount = this.owner(path);
+		if (folder) {
+			// A folder this layer is moving things through is not the member's.
+			const passing = this.expected.some((e) => within(e.to, path));
+			if (!mount && !passing && this.isOutsideFolder(path)) this.offer([path]);
+			return;
+		}
 		if (mount) mount.sync.created(this.relative(mount, path));
 		else if (this.isOutside(path)) this.offer([path]);
 	}
@@ -365,7 +383,7 @@ export class Mounts {
 		}
 		const mount = this.owner(path);
 		if (!mount) {
-			for (const p of [...this.offered]) if (within(p, path)) this.offered.delete(p);
+			this.dropOffers(path);
 			return;
 		}
 		// The events of a vault folder's own deletion can arrive before the
@@ -494,18 +512,17 @@ export class Mounts {
 						: `${to} is outside your SCN vaults. Moved back.`,
 				);
 			} else if (destination) {
-				// Brought into a vault from outside: new notes there.
+				// Brought into a vault from outside: new notes there, and
+				// nothing left to offer.
+				this.dropOffers(from);
 				for (const path of this.filesUnder(to, folder)) destination.sync.created(this.relative(destination, path));
 			} else {
-				// M10. From outside to outside. A note already offered a move
-				// keeps that; one not offered yet is offered now.
-				const fresh: string[] = [];
-				for (const path of this.filesUnder(to, folder)) {
-					const old = moved(path, to, from);
-					if (this.offered.delete(old)) this.offered.add(path);
-					else if (this.isOutside(path)) fresh.push(path);
-				}
-				if (fresh.length > 0) this.offer(fresh);
+				// M10. From outside to outside. What was offered keeps its
+				// offer under its new path; what was not is offered now. A
+				// folder is offered whole, unless some of it already was.
+				this.followOffers(from, to);
+				const fresh = folder && ![...this.offered.keys()].some((key) => within(key, to)) ? [to] : this.filesUnder(to, folder);
+				this.offer(fresh.filter((path) => !this.covered(path)));
 			}
 		}
 		this.options.onStatus();
@@ -538,6 +555,44 @@ export class Mounts {
 		return !records.some((record) => within(path, record.folder));
 	}
 
+	// A folder no vault is in or under, and not one the relay names. Nothing
+	// is outside before any vault is known.
+	private isOutsideFolder(path: string): boolean {
+		const records = Object.values(this.records);
+		if (path === "" || records.length === 0 || !this.options.files.hasFolder(path)) return false;
+		if (path.split("/").some((segment) => segment.startsWith("."))) return false;
+		if (this.options.listed().includes(path)) return false;
+		return !records.some((record) => within(path, record.folder) || within(record.folder, path));
+	}
+
+	// Already offered, itself or in a folder that was.
+	private covered(path: string): boolean {
+		return [...this.offered.keys()].some((key) => within(path, key));
+	}
+
+	// Offers follow a rename, so the member's answer moves what is there.
+	private followOffers(from: string, to: string) {
+		this.offers = this.offers.map((path) => (within(path, from) ? moved(path, from, to) : path));
+		for (const [key, offer] of [...this.offered]) {
+			if (!within(key, from)) continue;
+			const next = moved(key, from, to);
+			this.offered.delete(key);
+			this.offered.set(next, offer);
+			const i = offer.paths.indexOf(key);
+			if (i !== -1) offer.paths[i] = next;
+		}
+	}
+
+	// Gone, or moved into a vault: nothing left to offer there.
+	private dropOffers(path: string) {
+		for (const [key, offer] of [...this.offered]) {
+			if (!within(key, path)) continue;
+			this.offered.delete(key);
+			const i = offer.paths.indexOf(key);
+			if (i !== -1) offer.paths.splice(i, 1);
+		}
+	}
+
 	// Every note outside every vault: on this device only, not syncing.
 	outside(): string[] {
 		if (Object.keys(this.records).length === 0) return [];
@@ -549,24 +604,29 @@ export class Mounts {
 		this.offers.push(...paths);
 		this.offerTimer ??= setTimeout(() => {
 			this.offerTimer = null;
-			const batch = [...new Set(this.offers)].filter((path) => !this.offered.has(path) && this.isOutside(path));
+			const pending = [...new Set(this.offers)].filter((path) => !this.covered(path) && (this.isOutside(path) || this.isOutsideFolder(path)));
 			this.offers = [];
+			// A note in a folder offered with it goes with the folder.
+			const batch = pending.filter((path) => !pending.some((other) => other !== path && within(path, other)));
 			if (batch.length === 0 || this.stopped) return;
-			for (const path of batch) this.offered.add(path);
-			this.options.offerMove(batch, this.privateFolder());
+			const offer: Offer = { paths: batch };
+			for (const path of batch) this.offered.set(path, offer);
+			this.options.offerMove(offer, this.privateFolder());
 		}, EVENT_BATCH_MS);
 	}
 
-	// Only on the member's yes: the note goes to the private vault's folder
-	// under its own name, numbered if that name is taken, and is a new note
-	// there. Returns where it went, or null when it did not move.
+	// Only on the member's yes: the note or folder goes to the private vault's
+	// folder under its own name, numbered if that name is taken, and its notes
+	// are new notes there. Returns where it went, or null when it did not move.
 	async moveIntoPrivate(path: string): Promise<string | null> {
 		const { files } = this.options;
 		const id = Object.entries(this.records).find(([, record]) => record.private)?.[0];
 		const mount = id ? this.mounts.get(id) : undefined;
-		if (!mount || !this.isOutside(path) || (await files.read(path)) === null) return null;
+		if (!mount) return null;
+		const folder = this.isOutsideFolder(path);
+		if (!folder && (!this.isOutside(path) || (await files.read(path)) === null)) return null;
 		const name = path.slice(path.lastIndexOf("/") + 1);
-		const dot = name.lastIndexOf(".");
+		const dot = folder ? -1 : name.lastIndexOf(".");
 		const [stem, extension] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
 		let to = `${mount.record.folder}/${name}`;
 		for (let n = 1; (await files.read(to)) !== null || files.hasFolder(to); n++) {
@@ -574,8 +634,8 @@ export class Mounts {
 		}
 		this.expect(path, to);
 		if (!(await files.rename(path, to))) return null;
-		this.offered.delete(path);
-		mount.sync.created(this.relative(mount, to));
+		this.dropOffers(path);
+		for (const moved of this.filesUnder(to, folder)) mount.sync.created(this.relative(mount, moved));
 		return to;
 	}
 

@@ -102,8 +102,8 @@ https://community.obsidian.md/plugins/scn-sync, published 2026-10-26 at
   and `styles.css` when there is one. The tag `0.0.1` belonged to the retired probe.
   The first SCN Sync release is `0.2.0`.
 - The README discloses network use (Corliss and the relay, nothing else),
-  that an SCN membership is required, and that notes are not end-to-end
-  encrypted.
+  that an SCN membership is required, and that notes are not encrypted at
+  rest.
 - `main.js` builds from source with a documented command, since reviewers
   will ask about a 5 MB bundle with inlined WASM.
 
@@ -156,7 +156,7 @@ cannot do.
 
 The setup modal:
 
-- Says what the plugin does and that notes are not end-to-end encrypted.
+- Says what the plugin does and that notes are not encrypted at rest.
 - Checks whether the vault has `.md` files. If it has, it says how many and
   that nothing is overwritten: a note that differs is kept as a copy (V3).
 - Every step is also in the settings tab, so a dismissed modal loses
@@ -629,8 +629,8 @@ A new member makes an empty Obsidian vault and adds SCN Sync. Obsidian's own
 `Welcome.md` sits at the root, outside every vault. Once per device, after the
 first vault list that names the private vault and the relay's `folders`,
 SCN Sync writes its own `Welcome.md` there: what syncs and what does not, the
-folders by the names the relay gives them, that notes are not end-to-end
-encrypted, and what the status says.
+folders by the names the relay gives them, that notes are not encrypted at
+rest, and what the status says.
 
 - It replaces a `Welcome.md` that is Obsidian's: its words, or the only note
   outside every vault. One the member has written in is left, and nothing is

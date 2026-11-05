@@ -23,7 +23,7 @@ export class SetupModal extends Modal {
 		contentEl.createEl("p", {
 			text: "SCN Sync keeps the notes in this vault in step with any other devices or LLMs.",
 		});
-		contentEl.createEl("p", { text: "NOTE: your notes are not end-to-end encrypted." });
+		contentEl.createEl("p", { text: "NOTE: notes are not encrypted at rest." });
 
 		contentEl.createEl("p", {
 			text: "Your private vault is the Private folder, and each workspace you are in appears in a Workspaces folder. Notes outside those folders stay on this device.",

@@ -26,14 +26,16 @@ folder:
 
 - `Private/` for your private vault. Only you can read these notes.
 - `Workspaces/<name>/` for each workspace you are in. Everyone in the
-  workspace reads and edits these notes.
+  workspace reads and edits these notes. `Workspaces/` is there even before
+  you join one.
 
 Notes anywhere else in the vault stay on this device. The status lists them as
-not syncing, and SCN Sync offers to move a new one into `Private/`; nothing
-moves unless you say so. Obsidian puts new notes, daily notes and notes made
-from a link at the top of the vault by default, so SCN Sync asks once whether
-to put them in `Private/` instead. The same choice is in its settings, under
-New notes. Joining a workspace adds
+not syncing, and SCN Sync offers to move a new note or folder into `Private/`;
+nothing moves unless you say so. Obsidian puts new notes, daily notes and
+notes made from a link at the top of the vault by default, so SCN Sync points
+them at `Private/` once, and says so; change it back under Obsidian's Files
+and links settings. SCN Sync also replaces Obsidian's `Welcome.md` with its
+own, which stays on this device. Joining a workspace adds
 its folder; leaving one stops it syncing and keeps its files. Moving a note
 from one vault's folder into another's asks first, and makes it a new note
 there. Vault folders are named and removed in Corliss, so renaming or deleting

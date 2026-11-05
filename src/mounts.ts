@@ -84,6 +84,9 @@ export interface MountsOptions {
 	// M5. The folders the relay groups vaults under, made safe. Never
 	// outside, though they may hold no vault yet.
 	listed: () => string[];
+	// M12. A note kept on this device on purpose: never outside, never
+	// offered, never counted.
+	localOnly: (path: string) => boolean;
 	notify: (text: string) => void;
 	online: () => boolean;
 	onStatus: () => void;
@@ -551,7 +554,7 @@ export class Mounts {
 	// A note no vault holds. Nothing is outside before any vault is known.
 	isOutside(path: string): boolean {
 		const records = Object.values(this.records);
-		if (records.length === 0 || !this.options.files.synced(path)) return false;
+		if (records.length === 0 || !this.options.files.synced(path) || this.options.localOnly(path)) return false;
 		return !records.some((record) => within(path, record.folder));
 	}
 

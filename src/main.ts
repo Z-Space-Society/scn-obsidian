@@ -19,9 +19,9 @@ import {
 import { Connection, type ConnectionState } from "./connection.ts";
 import { IndexedDBNoteStore, deleteDatabase } from "./idb.ts";
 import { describe } from "./messages.ts";
-import { Mounts, type MountVault } from "./mounts.ts";
+import { Mounts, folderOf, type MountVault } from "./mounts.ts";
 import { ObsidianLocations, newNotesSync, putNewNotesIn, shouldAsk, type NoteLocations } from "./newnotes.ts";
-import { listVaults, type Vault } from "./relay.ts";
+import { listVaults, type Listing } from "./relay.ts";
 import { DEFAULT_SETTINGS, signedInAsSomeoneElse, type Settings } from "./state.ts";
 import { ScnSyncSettingTab } from "./ui/settings.ts";
 import { ConnectModal, DeleteGuardModal, MoveModal, NewNotesModal, SetupModal } from "./ui/setup.ts";
@@ -299,7 +299,7 @@ export default class ScnSync extends Plugin {
 		}
 	}
 
-	async vaults(): Promise<Vault[]> {
+	async vaults(): Promise<Listing> {
 		return listVaults(http, this.settings.syncUrl, await this.keeper.accessToken());
 	}
 
@@ -422,14 +422,14 @@ export default class ScnSync extends Plugin {
 	private async refreshOnce() {
 		const { mounts } = this;
 		if (!mounts || !this.signedIn()) return;
-		let listed: Vault[];
+		let listing: Listing;
 		try {
-			listed = await this.vaults();
+			listing = await this.vaults();
 		} catch {
 			return;
 		}
 		if (this.mounts !== mounts) return;
-		const vaults: MountVault[] = listed.map(({ rootDocId, url, path, workspace }) => ({
+		const vaults: MountVault[] = listing.vaults.map(({ rootDocId, url, path, workspace }) => ({
 			rootDocId,
 			url,
 			path,
@@ -452,7 +452,25 @@ export default class ScnSync extends Plugin {
 			await this.save();
 		}
 		await mounts.update(vaults);
+		await this.makeFolders(listing.folders);
 		await this.askAboutNewNotes();
+	}
+
+	// M5. Each folder the relay groups vaults under, made even with nothing in
+	// it, so a member in no workspace still sees where workspaces will appear.
+	// Kept, so what the relay calls them is known offline.
+	private async makeFolders(folders: string[]) {
+		if (folders.length === 0) return;
+		// Made safe as a vault's folder is, so `Workspaces` here is the same
+		// folder `Workspaces/<name>` is made in.
+		for (const folder of folders) {
+			const safe = folderOf(folder);
+			if (safe) await this.files.makeFolder(safe);
+		}
+		if (folders.join("\n") !== this.settings.folders.join("\n")) {
+			this.settings.folders = folders;
+			await this.save();
+		}
 	}
 
 	// M10. Notes that landed outside every vault, offered a move into the

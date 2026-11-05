@@ -38,8 +38,9 @@ describe("the vault list", () => {
 				},
 			};
 		};
-		const vaults = await listVaults(http, SYNC, "token");
+		const { vaults, folders } = await listVaults(http, SYNC, "token");
 		assert.equal(seen?.Authorization, "Bearer token");
+		assert.deepEqual(folders, []);
 		assert.deepEqual(vaults, [
 			{
 				rootDocId: "4NMNnkMhL8jXrdJ9jamS58PAVdXu",
@@ -67,7 +68,9 @@ describe("the vault list", () => {
 			status: 200,
 			json: { vaults: [{ root_doc_id: "a", url: "automerge:a", name: "Notes" }] },
 		});
-		const [vault] = await listVaults(http, SYNC, "token");
+		const {
+			vaults: [vault],
+		} = await listVaults(http, SYNC, "token");
 		assert.equal(vault.path, "");
 		assert.equal(vault.workspace, null);
 	});
@@ -77,9 +80,23 @@ describe("the vault list", () => {
 			status: 200,
 			json: { vaults: [{ root_doc_id: "a", url: "automerge:a", name: null, workspace: null, path: "Private" }] },
 		});
-		const [vault] = await listVaults(http, SYNC, "token");
+		const {
+			vaults: [vault],
+		} = await listVaults(http, SYNC, "token");
 		assert.equal(vault.name, null);
 		assert.equal(vault.path, "Private");
+	});
+
+	it("reads the folders the relay groups vaults under, even with none in one", async () => {
+		const http: Http = async () => ({
+			status: 200,
+			json: {
+				vaults: [{ root_doc_id: "a", url: "automerge:a", name: null, workspace: null, path: "Private" }],
+				folders: ["Private", "Workspaces", 3, ""],
+			},
+		});
+		const { folders } = await listVaults(http, SYNC, "token");
+		assert.deepEqual(folders, ["Private", "Workspaces"]);
 	});
 
 	it("is refused as unauthorized on 401", async () => {

@@ -524,7 +524,9 @@ every vault is a new note there.
 The list is asked for at start, each time the connection opens, and every
 fifteen minutes. A vault new to the list is mounted, and its folder is made
 even when it holds no notes yet, so a new workspace shows and its first note
-can be made in it. A vault whose `path`
+can be made in it. Each folder the list names under `folders` (`Private`,
+`Workspaces`) is made too, even with no vault in it, so a member in no
+workspace still sees where one will appear. A vault whose `path`
 changed, a workspace renamed in Corliss, has its folder renamed to match. A
 vault gone from the list, because the member left the workspace or the vault
 went, stops syncing: its note store is deleted and its folder is kept, with a

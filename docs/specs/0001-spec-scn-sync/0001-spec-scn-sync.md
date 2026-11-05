@@ -630,7 +630,7 @@ A new member makes an empty Obsidian vault and adds SCN Sync. Obsidian's own
 first vault list that names the private vault and the relay's `folders`,
 SCN Sync writes its own `Welcome.md` there: what syncs and what does not, the
 folders by the names the relay gives them, that notes are not encrypted at
-rest, and what the status says.
+rest, what the status says, and the commands that fix a stuck sync.
 
 - It replaces a `Welcome.md` that is Obsidian's: its words, or the only note
   outside every vault. One the member has written in is left, and nothing is

@@ -40,7 +40,7 @@ export function welcomeNote(privateFolder: string, folders: string[]): string {
 		"",
 		`Everything else in this vault stays on this device. New notes go in ${priv}. When a note or folder lands outside the folders above, SCN Sync says so and offers to move it into ${priv}.`,
 		"",
-		"NOTE:  Your notes are not end-to-end encrypted.",
+		"NOTE: Notes are not encrypted at rest.",
 		"",
 		"## How things stand",
 		"",

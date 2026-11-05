@@ -1,6 +1,6 @@
 # SCN Sync
 
-Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits, new notes, renames, moves and deletions across desktop and iPhone while merging concurrent changes. Sign in with an SCN membership via Corliss; notes are stored as Automerge documents on the relay and are not end-to-end encrypted.
+Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits, new notes, renames, moves and deletions across desktop and iPhone while merging concurrent changes. Sign in with an SCN membership via Corliss; notes are stored as Automerge documents on the relay and are not encrypted at rest.
 
 ## What it needs
 
@@ -61,7 +61,7 @@ dependencies.
 ## Privacy
 
 Notes are stored on the relay as Automerge documents. They are not
-end-to-end encrypted: SCN's operators can read them.
+encrypted at rest.
 
 ## Development
 

@@ -47,6 +47,7 @@ function plugin(
 		stores?: Map<string, MemoryNoteStore>;
 		confirmMove?: (move: CrossMove) => Promise<boolean>;
 		listed?: string[];
+		localOnly?: string;
 	} = {},
 ) {
 	const repo = new Repo({ network: [setup.pluginEnd] });
@@ -74,6 +75,7 @@ function plugin(
 			// The offer's own array, so a test sees it follow renames.
 			offerMove: (offer, into) => void offers.push({ paths: offer.paths, into }),
 			listed: () => options.listed ?? [],
+			localOnly: (path) => path === options.localOnly,
 			notify: (text) => void notices.push(text),
 			online: () => true,
 			onStatus: () => {},
@@ -482,6 +484,18 @@ describe("notes outside every vault", () => {
 		}
 		await local.mounts.idle();
 		assert.deepEqual(local.offers, []);
+	});
+
+	it("never include a note kept on this device on purpose", async () => {
+		const setup = relayWithTwoVaults();
+		const local = plugin(setup, { localOnly: "Welcome.md" });
+		await local.mounts.update(setup.vaults);
+		await local.mounts.idle();
+		local.files.files.set("Welcome.md", "help\n");
+		local.mounts.created("Welcome.md");
+		await local.mounts.idle();
+		assert.deepEqual(local.offers, []);
+		assert.deepEqual(local.mounts.outside(), []);
 	});
 
 	it("move into the private vault on a yes, as new notes there", async () => {

@@ -587,7 +587,8 @@ and the member is told:
    Private and Workspaces folders are synced.", from `folders`). Things
    arriving in one batch of events share one offer, and a note inside a
    folder offered with it is not offered again. The folders the relay names
-   are never offered, though one may hold no vault yet. The status offers the
+   are never offered, though one may hold no vault yet, and neither is the
+   welcome note (M12). The status offers the
    same move for each note it lists; a folder holding no note is not counted.
 3. An offer follows renames until the member answers: Obsidian makes
    `Untitled.md`, or a folder `Untitled`, and renames it once the member
@@ -621,6 +622,23 @@ one answered no.
   which asked, is kept.
 - The settings tab shows where new notes go, with a button that does the
   same.
+
+### M12. The welcome note
+
+A new member makes an empty Obsidian vault and adds SCN Sync. Obsidian's own
+`Welcome.md` sits at the root, outside every vault. Once per device, after the
+first vault list that names the private vault and the relay's `folders`,
+SCN Sync writes its own `Welcome.md` there: what syncs and what does not, the
+folders by the names the relay gives them, that notes are not end-to-end
+encrypted, and what the status says.
+
+- It replaces a `Welcome.md` that is Obsidian's: its words, or the only note
+  outside every vault. One the member has written in is left, and nothing is
+  written.
+- It stays on this device. Its path is kept in `data.json`, and that path is
+  never outside (M10): not offered a move, not counted. Renamed or moved, it
+  is an ordinary note again.
+- Deleted, it is not written again.
 
 ## The sync loop
 

@@ -19,7 +19,7 @@ import {
 import { Connection, type ConnectionState } from "./connection.ts";
 import { IndexedDBNoteStore, deleteDatabase } from "./idb.ts";
 import { describe } from "./messages.ts";
-import { Mounts, folderOf, type MountVault } from "./mounts.ts";
+import { Mounts, folderOf, type MountVault, type Offer } from "./mounts.ts";
 import { ObsidianLocations, newNotesSync, putNewNotesIn, shouldApply, type NoteLocations } from "./newnotes.ts";
 import { listVaults, type Listing } from "./relay.ts";
 import { DEFAULT_SETTINGS, signedInAsSomeoneElse, type Settings } from "./state.ts";
@@ -75,6 +75,11 @@ function localDate(): string {
 	const now = new Date();
 	const pad = (n: number) => String(n).padStart(2, "0");
 	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+// "A and B", "A, B and C".
+function listed(names: string[]): string {
+	return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
 export default class ScnSync extends Plugin {
@@ -188,7 +193,7 @@ export default class ScnSync extends Plugin {
 			const { vault } = this.app;
 			this.registerEvent(
 				vault.on("create", (file) => {
-					if (file instanceof TFile) this.mounts?.created(file.path);
+					if (file instanceof TFile || file instanceof TFolder) this.mounts?.created(file.path, file instanceof TFolder);
 					this.showStatus();
 				}),
 			);
@@ -393,7 +398,8 @@ export default class ScnSync extends Plugin {
 				confirm: (plan, path) => new ConnectModal(this.app, plan, path).ask(),
 				confirmDeletes: (paths, path) => new DeleteGuardModal(this.app, paths, path).ask(),
 				confirmMove: (move) => new MoveModal(this.app, move).ask(),
-				offerMove: (paths, into) => this.offerMove(paths, into),
+				offerMove: (offer, into) => this.offerMove(offer, into),
+				listed: () => this.listedFolders(),
 				notify: notice,
 				online: () => this.connection?.state === "online",
 				onStatus: () => this.showStatus(),
@@ -473,16 +479,24 @@ export default class ScnSync extends Plugin {
 
 	// M10. Notes that landed outside every vault, offered a move into the
 	// private vault. Nothing moves unless the member taps Move.
-	private offerMove(paths: string[], into: string | null) {
-		const what = paths.length === 1 ? `${paths[0]} is` : `${paths.length} notes are`;
+	// The offer's paths are read at the click, not now: they follow renames,
+	// such as Obsidian's `Untitled.md` taking the name the member types.
+	private offerMove(offer: Offer, into: string | null) {
+		const folders = this.settings.folders;
+		const which = folders.length > 0 ? `${listed(folders)} folders` : "your SCN vaults' folders";
 		const fragment = createFragment((f) => {
-			f.createDiv({ text: `SCN Sync: ${what} in no SCN vault and will stay on this device.` });
+			f.createDiv({ text: `SCN Sync: Only ${which} are synced.` });
 			if (!into) return;
 			f.createEl("button", { text: `Move to ${into}`, cls: "mod-cta" }).addEventListener("click", () => {
-				void this.moveIntoPrivate(paths);
+				void this.moveIntoPrivate([...offer.paths]);
 			});
 		});
 		new Notice(fragment, 0);
+	}
+
+	// M5. The relay's folders, made safe as `makeFolders` makes them.
+	private listedFolders(): string[] {
+		return this.settings.folders.flatMap((folder) => folderOf(folder) ?? []);
 	}
 
 	// M10. Into the private vault's folder, as new notes there.

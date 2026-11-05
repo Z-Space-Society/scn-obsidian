@@ -581,15 +581,22 @@ and the member is told:
 1. Every note outside every vault's folder counts as not syncing: the status
    reads Attention, and the status lists each one. Nothing counts before any
    vault is known.
-2. A note that lands outside, by being created there or by being moved for
-   the first time while Obsidian runs, is offered a move into the private
-   vault, once per note. A note renamed after its offer keeps it. Notes
-   arriving in one batch of events share one offer. The status offers the
-   same move for each note it lists.
-3. Nothing moves without the member's yes. The note goes to the private
-   vault's folder under its own name, numbered (` 1`, ` 2`) when the name is
-   taken, with `vault.rename` and no link rewriting (M8). It is a new note
-   there.
+2. A note or folder that lands outside, by being created there or by being
+   moved for the first time while Obsidian runs, is offered a move into the
+   private vault, once. The notice says only the relay's folders sync ("Only
+   Private and Workspaces folders are synced.", from `folders`). Things
+   arriving in one batch of events share one offer, and a note inside a
+   folder offered with it is not offered again. The folders the relay names
+   are never offered, though one may hold no vault yet. The status offers the
+   same move for each note it lists; a folder holding no note is not counted.
+3. An offer follows renames until the member answers: Obsidian makes
+   `Untitled.md`, or a folder `Untitled`, and renames it once the member
+   types a name, and the move takes what is there then. Something deleted, or
+   moved into a vault by hand, drops out of its offer.
+4. Nothing moves without the member's yes. The note or folder goes to the
+   private vault's folder under its own name, numbered (` 1`, ` 2`) when the
+   name is taken, with `vault.rename` and no link rewriting (M8). Its notes
+   are new notes there.
 
 The private vault is the one listed with no workspace, recorded as `private`
 in its mount record so it is known offline. Its folder is the target; the

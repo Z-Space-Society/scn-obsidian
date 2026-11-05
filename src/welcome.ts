@@ -54,6 +54,14 @@ export function welcomeNote(privateFolder: string, folders: string[]): string {
 		"",
 		"The SCN Sync icon in the left ribbon shows the details, and what to do about anything needing attention. Settings, SCN Sync lists each vault and its folder, and where new notes go.",
 		"",
+		"## Commands",
+		"",
+		"Press Ctrl-P (Cmd-P on a Mac) to open the command palette. On a phone, pull down on a note to open it.",
+		"",
+		"- **Reload app without saving**: restarts Obsidian and SCN Sync with it. Use it if sync seems stuck or a workspace you were added to hasn't shown up.",
+		"- **SCN Sync: Reconnect now**: a lighter fix that only reconnects to SCN.",
+		"- **SCN Sync: Open sync status**: the same as the ribbon icon.",
+		"",
 	);
 	return lines.join("\n");
 }

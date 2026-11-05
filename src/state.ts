@@ -29,10 +29,9 @@ export interface Settings {
 	storeId: string;
 	// M5. The folders the relay groups vaults under, as it last named them.
 	folders: string[];
-	// M12. Null until decided on this device; then the path of SCN's
-	// Welcome.md, which stays here and is never offered a move, or "" when
-	// none was written.
-	welcome: string | null;
+	// M12. The plugin version that last wrote Welcome.md on this device, so
+	// a new version writes it again.
+	welcomeVersion: string;
 	// M11. The answer to "put new notes in the private vault?", asked once.
 	newNotesAnswer: NewNotesAnswer;
 }
@@ -49,7 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	vaultName: "",
 	storeId: "",
 	folders: [],
-	welcome: null,
+	welcomeVersion: "",
 	newNotesAnswer: "",
 };
 

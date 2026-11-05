@@ -1,7 +1,7 @@
 {
 	"id": "scn-sync",
 	"name": "SCN Sync",
-	"version": "1.2.4",
+	"version": "1.2.5",
 	"minAppVersion": "1.13.0",
 	"description": "Keep a vault of Markdown notes in step with your notes on the Shared Computer Network.",
 	"author": "Z-Space Society",

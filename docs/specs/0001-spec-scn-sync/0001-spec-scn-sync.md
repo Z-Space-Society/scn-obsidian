@@ -626,19 +626,18 @@ one answered no.
 ### M12. The welcome note
 
 A new member makes an empty Obsidian vault and adds SCN Sync. Obsidian's own
-`Welcome.md` sits at the root, outside every vault. Once per device, after the
-first vault list that names the private vault and the relay's `folders`,
-SCN Sync writes its own `Welcome.md` there: what syncs and what does not, the
-folders by the names the relay gives them, that notes are not encrypted at
-rest, what the status says, and the commands that fix a stuck sync.
+`Welcome.md` sits at the root, outside every vault. After the first vault
+list that names the private vault and the relay's `folders`, SCN Sync writes
+its own `Welcome.md` there: what syncs and what does not, the folders by the
+names the relay gives them, that notes are not encrypted at rest, what the
+status says, and the commands that fix a stuck sync.
 
-- It replaces a `Welcome.md` that is Obsidian's: its words, or the only note
-  outside every vault. One the member has written in is left, and nothing is
-  written.
-- It stays on this device. Its path is kept in `data.json`, and that path is
-  never outside (M10): not offered a move, not counted. Renamed or moved, it
-  is an ordinary note again.
-- Deleted, it is not written again.
+- It is written over whatever `Welcome.md` is there, and written again by
+  each new version of the plugin, so a change to its text reaches every
+  device. The note says so. The version that last wrote it is kept in
+  `data.json`; deleted, it comes back with the next version.
+- It stays on this device. `Welcome.md` at the root is never outside (M10):
+  not offered a move, not counted. Renamed or moved, it is an ordinary note.
 
 ## The sync loop
 

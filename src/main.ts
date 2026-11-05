@@ -27,7 +27,7 @@ import { ScnSyncSettingTab } from "./ui/settings.ts";
 import { ConnectModal, DeleteGuardModal, MoveModal, SetupModal } from "./ui/setup.ts";
 import { StatusModal } from "./ui/status.ts";
 import { VaultFiles } from "./vaultfiles.ts";
-import { WELCOME, shouldWrite, welcomeNote } from "./welcome.ts";
+import { WELCOME, welcomeNote } from "./welcome.ts";
 
 const PENDING_KEY = "scn-sync-pending-sign-in";
 const TYPING_PAUSE_MS = 500;
@@ -401,7 +401,7 @@ export default class ScnSync extends Plugin {
 				confirmMove: (move) => new MoveModal(this.app, move).ask(),
 				offerMove: (offer, into) => this.offerMove(offer, into),
 				listed: () => this.listedFolders(),
-				localOnly: (path) => path === this.settings.welcome,
+				localOnly: (path) => path === WELCOME,
 				notify: notice,
 				online: () => this.connection?.state === "online",
 				onStatus: () => this.showStatus(),
@@ -460,23 +460,20 @@ export default class ScnSync extends Plugin {
 		await mounts.update(vaults);
 		await this.makeFolders(listing.folders);
 		await this.applyNewNotesOnce();
-		await this.writeWelcomeOnce();
+		await this.writeWelcome();
 	}
 
-	// M12. Once per device, after the M8 move so it stays at the root: SCN's
-	// Welcome.md in place of Obsidian's. Waits for a listing that names the
-	// folders, which the note names. Recorded before it is written, so its own
-	// create event finds it kept here on purpose.
-	private async writeWelcomeOnce() {
+	// M12. Once per plugin version on this device, after the M8 move so it
+	// stays at the root: Welcome.md, over whatever is there. Waits for a
+	// listing that names the folders, which the note names.
+	private async writeWelcome() {
 		const into = this.privateFolder();
 		const folders = this.listedFolders();
-		if (this.settings.welcome !== null || !this.mounts || !into || folders.length === 0) return;
-		const existing = await this.files.read(WELCOME);
-		const onlyNote = this.mounts.outside().every((path) => path === WELCOME);
-		const write = shouldWrite(existing, onlyNote);
-		this.settings.welcome = write ? WELCOME : "";
+		const version = this.manifest.version;
+		if (this.settings.welcomeVersion === version || !into || folders.length === 0) return;
+		await this.files.write(WELCOME, welcomeNote(into, folders));
+		this.settings.welcomeVersion = version;
 		await this.save();
-		if (write) await this.files.write(WELCOME, welcomeNote(into, folders), existing);
 	}
 
 	// M5. Each folder the relay groups vaults under, made even with nothing in

@@ -1,19 +1,10 @@
-// M12. SCN's own Welcome.md, in place of the one Obsidian puts in a new
-// vault. It stays at the root of this device's vault and never syncs: it is
+// M12. SCN Sync's own Welcome.md, over the one Obsidian puts in a new vault
+// and over whatever is there, written again with each new version of the
+// plugin. It stays at the root of this device's vault and never syncs: it is
 // help for this Obsidian, not a note. The folder names come from the relay,
 // so the words are spelled here no more than anywhere else in the plugin.
 
 export const WELCOME = "Welcome.md";
-
-// What Obsidian's own Welcome.md says, in the versions seen so far.
-const STOCK = "This is your new *vault*.";
-
-// Written when there is no Welcome.md, or when the one there is Obsidian's:
-// its words, or the only note outside every vault in a vault just made. One
-// the member has written in is left alone.
-export function shouldWrite(existing: string | null, onlyNote: boolean): boolean {
-	return existing === null || onlyNote || existing.includes(STOCK);
-}
 
 // `privateFolder` is the private vault's; `folders` the relay's, of which the
 // other is the workspaces'. Neither is picked by its place in the list.
@@ -23,7 +14,7 @@ export function welcomeNote(privateFolder: string, folders: string[]): string {
 	const lines = [
 		"# Welcome to SCN Sync",
 		"",
-		"This note is from SCN Sync. It stays on this device and does not sync, so delete it whenever you like.",
+		"SCN Sync wrote this note and writes it again when the plugin is updated, so changes made here may be overwritten. It stays on this device and does not sync.",
 		"",
 		"## What syncs",
 		"",

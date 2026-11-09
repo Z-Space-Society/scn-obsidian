@@ -1,53 +1,58 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Http } from "../src/auth.ts";
-import { Unauthorized, listVaults } from "../src/relay.ts";
+import { Unauthorized, listWorkspaces } from "../src/relay.ts";
 import { signedInAsSomeoneElse, DEFAULT_SETTINGS } from "../src/state.ts";
 
-const SYNC = "https://sync.scn.example";
+const NOTES = "https://notes.scn.example";
 
-describe("the vault list", () => {
-	it("reads the relay's {vaults: [...]} answer with the bearer token", async () => {
+describe("the workspace list", () => {
+	it("reads the relay's /v1/workspaces answer with the bearer token", async () => {
 		let seen: Record<string, string> | undefined;
 		const http: Http = async (request) => {
 			seen = request.headers;
-			assert.equal(request.url, `${SYNC}/vaults`);
+			assert.equal(request.url, `${NOTES}/v1/workspaces`);
 			return {
 				status: 200,
 				json: {
-					vaults: [
+					workspaces: [
 						{
-							root_doc_id: "4NMNnkMhL8jXrdJ9jamS58PAVdXu",
-							url: "automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu",
-							name: "SCN Notes",
-							workspace: null,
-							path: "Private/SCN Notes",
+							root_doc_id: "4NMN",
+							url: "automerge:4NMN",
+							name: null,
+							group_id: null,
+							path: "Private",
 							created_at: "2026-10-15T21:27:41.881368Z",
 							last_change_at: null,
+							note_count: 3,
+							bytes: 1024,
 						},
 						{
 							root_doc_id: "7xQ2",
 							url: "automerge:7xQ2",
 							name: "SCN Development",
-							workspace: "3",
+							group_id: "3",
 							path: "Workspaces/SCN Development",
 							created_at: "2026-11-04T18:00:00Z",
 							last_change_at: "2026-11-04T18:05:00Z",
+							note_count: null,
+							bytes: null,
 						},
 					],
+					root_folders: ["Private", "Workspaces"],
 				},
 			};
 		};
-		const { vaults, folders } = await listVaults(http, SYNC, "token");
+		const { workspaces, rootFolders } = await listWorkspaces(http, NOTES, "token");
 		assert.equal(seen?.Authorization, "Bearer token");
-		assert.deepEqual(folders, []);
-		assert.deepEqual(vaults, [
+		assert.deepEqual(rootFolders, ["Private", "Workspaces"]);
+		assert.deepEqual(workspaces, [
 			{
-				rootDocId: "4NMNnkMhL8jXrdJ9jamS58PAVdXu",
-				url: "automerge:4NMNnkMhL8jXrdJ9jamS58PAVdXu",
-				name: "SCN Notes",
-				workspace: null,
-				path: "Private/SCN Notes",
+				rootDocId: "4NMN",
+				url: "automerge:4NMN",
+				name: null,
+				groupId: null,
+				path: "Private",
 				createdAt: "2026-10-15T21:27:41.881368Z",
 				lastChangeAt: null,
 			},
@@ -55,7 +60,7 @@ describe("the vault list", () => {
 				rootDocId: "7xQ2",
 				url: "automerge:7xQ2",
 				name: "SCN Development",
-				workspace: "3",
+				groupId: "3",
 				path: "Workspaces/SCN Development",
 				createdAt: "2026-11-04T18:00:00Z",
 				lastChangeAt: "2026-11-04T18:05:00Z",
@@ -63,45 +68,32 @@ describe("the vault list", () => {
 		]);
 	});
 
-	it("reads a relay older than v0.4.2 as naming no path", async () => {
+	it("skips an entry with no path, which has nowhere to go", async () => {
 		const http: Http = async () => ({
 			status: 200,
-			json: { vaults: [{ root_doc_id: "a", url: "automerge:a", name: "Notes" }] },
+			json: { workspaces: [{ root_doc_id: "a", url: "automerge:a", name: "Notes", group_id: null }], root_folders: [] },
 		});
-		const {
-			vaults: [vault],
-		} = await listVaults(http, SYNC, "token");
-		assert.equal(vault.path, "");
-		assert.equal(vault.workspace, null);
+		const { workspaces } = await listWorkspaces(http, NOTES, "token");
+		assert.deepEqual(workspaces, []);
 	});
 
-	it("reads a private vault with no name, at the path Private", async () => {
+	it("keeps only the root folders that are names", async () => {
 		const http: Http = async () => ({
 			status: 200,
-			json: { vaults: [{ root_doc_id: "a", url: "automerge:a", name: null, workspace: null, path: "Private" }] },
+			json: { workspaces: [], root_folders: ["Private", "Workspaces", 3, ""] },
 		});
-		const {
-			vaults: [vault],
-		} = await listVaults(http, SYNC, "token");
-		assert.equal(vault.name, null);
-		assert.equal(vault.path, "Private");
+		const { rootFolders } = await listWorkspaces(http, NOTES, "token");
+		assert.deepEqual(rootFolders, ["Private", "Workspaces"]);
 	});
 
-	it("reads the folders the relay groups vaults under, even with none in one", async () => {
-		const http: Http = async () => ({
-			status: 200,
-			json: {
-				vaults: [{ root_doc_id: "a", url: "automerge:a", name: null, workspace: null, path: "Private" }],
-				folders: ["Private", "Workspaces", 3, ""],
-			},
-		});
-		const { folders } = await listVaults(http, SYNC, "token");
-		assert.deepEqual(folders, ["Private", "Workspaces"]);
+	it("refuses the old shape", async () => {
+		const http: Http = async () => ({ status: 200, json: { vaults: [], folders: [] } });
+		await assert.rejects(listWorkspaces(http, NOTES, "token"));
 	});
 
 	it("is refused as unauthorized on 401", async () => {
 		const http: Http = async () => ({ status: 401, json: null });
-		await assert.rejects(listVaults(http, SYNC, "token"), Unauthorized);
+		await assert.rejects(listWorkspaces(http, NOTES, "token"), Unauthorized);
 	});
 });
 

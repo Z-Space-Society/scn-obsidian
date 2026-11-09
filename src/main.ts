@@ -12,6 +12,7 @@ import {
 	exchangeCode,
 	matchCallback,
 	normaliseSyncUrl,
+	notesAddress,
 	subjectOf,
 	type Http,
 	type PendingSignIn,
@@ -21,7 +22,7 @@ import { IndexedDBNoteStore, deleteDatabase } from "./idb.ts";
 import { describe } from "./messages.ts";
 import { Mounts, folderOf, type MountVault, type Offer } from "./mounts.ts";
 import { ObsidianLocations, newNotesSync, putNewNotesIn, shouldApply, type NoteLocations } from "./newnotes.ts";
-import { listVaults, type Listing } from "./relay.ts";
+import { listWorkspaces, type Listing } from "./relay.ts";
 import { DEFAULT_SETTINGS, signedInAsSomeoneElse, type Settings } from "./state.ts";
 import { ScnSyncSettingTab } from "./ui/settings.ts";
 import { ConnectModal, DeleteGuardModal, MoveModal, SetupModal } from "./ui/setup.ts";
@@ -131,6 +132,17 @@ export default class ScnSync extends Plugin {
 			now: Date.now,
 			sleep: (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)),
 		});
+
+		// 1.3.0. SCN Notes moved from `sync.` to `notes.`. The token was for
+		// the old address and Corliss will not refresh it for the new one, so
+		// it goes before anything uses it, and the member signs in again.
+		const moved = notesAddress(this.settings.syncUrl);
+		if (moved !== this.settings.syncUrl) {
+			this.settings.syncUrl = moved;
+			this.keeper.signOut();
+			await this.save();
+			new Notice("SCN Sync: SCN Notes has a new address. Sign in again to keep syncing.", 0);
+		}
 
 		// Registered in onload so a callback that starts Obsidian still lands.
 		this.registerObsidianProtocolHandler(PROTOCOL_ACTION, (params) => void this.finishSignIn(params));
@@ -304,7 +316,7 @@ export default class ScnSync extends Plugin {
 	}
 
 	async vaults(): Promise<Listing> {
-		return listVaults(http, this.settings.syncUrl, await this.keeper.accessToken());
+		return listWorkspaces(http, this.settings.syncUrl, await this.keeper.accessToken());
 	}
 
 	// M1. This Obsidian vault syncs every SCN vault the member can open, each
@@ -435,11 +447,11 @@ export default class ScnSync extends Plugin {
 			return;
 		}
 		if (this.mounts !== mounts) return;
-		const vaults: MountVault[] = listing.vaults.map(({ rootDocId, url, path, workspace }) => ({
+		const vaults: MountVault[] = listing.workspaces.map(({ rootDocId, url, path, groupId }) => ({
 			rootDocId,
 			url,
 			path,
-			private: workspace === null,
+			private: groupId === null,
 		}));
 		// M8, once, and only against a relay that names paths.
 		if (this.settings.vaultUrl && vaults.every((vault) => vault.path !== "")) {
@@ -458,7 +470,7 @@ export default class ScnSync extends Plugin {
 			await this.save();
 		}
 		await mounts.update(vaults);
-		await this.makeFolders(listing.folders);
+		await this.makeFolders(listing.rootFolders);
 		await this.applyNewNotesOnce();
 		await this.writeWelcome();
 	}

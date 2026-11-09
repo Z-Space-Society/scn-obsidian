@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { Http } from "../src/auth.ts";
-import { Unauthorized, listWorkspaces } from "../src/relay.ts";
+import { Gone, Unauthorized, listWorkspaces } from "../src/relay.ts";
 import { signedInAsSomeoneElse, DEFAULT_SETTINGS } from "../src/state.ts";
 
 const NOTES = "https://notes.scn.example";
@@ -94,6 +94,36 @@ describe("the workspace list", () => {
 	it("is refused as unauthorized on 401", async () => {
 		const http: Http = async () => ({ status: 401, json: null });
 		await assert.rejects(listWorkspaces(http, NOTES, "token"), Unauthorized);
+	});
+});
+
+describe("the version signals", () => {
+	const empty = { workspaces: [], root_folders: ["Private", "Workspaces"] };
+
+	it("reads the date a Sunset header names", async () => {
+		const http: Http = async () => ({ status: 200, json: empty, headers: { sunset: "Thu, 10 Dec 2026 00:00:00 GMT" } });
+		const { sunset } = await listWorkspaces(http, NOTES, "token");
+		assert.equal(sunset?.toISOString(), "2026-12-10T00:00:00.000Z");
+	});
+
+	it("names no date without the header, or with one that does not parse", async () => {
+		for (const headers of [undefined, {}, { sunset: "soon" }] as Array<Record<string, string> | undefined>) {
+			const http: Http = async () => ({ status: 200, json: empty, headers });
+			const { sunset } = await listWorkspaces(http, NOTES, "token");
+			assert.equal(sunset, null);
+		}
+	});
+
+	it("is Gone on 410, whatever the body", async () => {
+		const http: Http = async () => ({ status: 410, json: empty, headers: { sunset: "Thu, 10 Dec 2026 00:00:00 GMT" } });
+		await assert.rejects(listWorkspaces(http, NOTES, "token"), Gone);
+	});
+
+	it("is not Gone on any other refusal", async () => {
+		for (const status of [404, 500, 503]) {
+			const http: Http = async () => ({ status, json: null });
+			await assert.rejects(listWorkspaces(http, NOTES, "token"), (e) => !(e instanceof Gone));
+		}
 	});
 });
 

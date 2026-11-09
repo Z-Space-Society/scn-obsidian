@@ -12,6 +12,11 @@ export function statusRows(plugin: ScnSync): StatusRow[] {
 	const { mounts } = plugin;
 	const last = plugin.lastSynced ? `Last up to date at ${new Date(plugin.lastSynced).toLocaleTimeString()}.` : "Not up to date yet since Obsidian started.";
 	const rows: StatusRow[] = [{ name: plugin.statusText(), desc: last }];
+	if (plugin.gone) {
+		rows.push({ name: "SCN Sync needs an update", desc: "This version of SCN Sync no longer works with SCN Notes. Update it under Settings, Community plugins." });
+	} else if (plugin.sunset) {
+		rows.push({ name: "SCN Sync needs an update", desc: `${plugin.sunsetLine()} Update it under Settings, Community plugins.` });
+	}
 	if (!mounts) return rows;
 	const guarding = mounts.guarding();
 	if (guarding > 0) {

@@ -22,7 +22,7 @@ import { IndexedDBNoteStore, deleteDatabase } from "./idb.ts";
 import { describe } from "./messages.ts";
 import { Mounts, folderOf, type MountVault, type Offer } from "./mounts.ts";
 import { ObsidianLocations, newNotesSync, putNewNotesIn, shouldApply, type NoteLocations } from "./newnotes.ts";
-import { listWorkspaces, type Listing } from "./relay.ts";
+import { Gone, listWorkspaces, type Listing } from "./relay.ts";
 import { DEFAULT_SETTINGS, signedInAsSomeoneElse, type Settings } from "./state.ts";
 import { ScnSyncSettingTab } from "./ui/settings.ts";
 import { ConnectModal, DeleteGuardModal, MoveModal, SetupModal } from "./ui/setup.ts";
@@ -56,7 +56,9 @@ const http: Http = async (request) => {
 	} catch {
 		// Not JSON. The callers read the status.
 	}
-	return { status: response.status, json };
+	const headers: Record<string, string> = {};
+	for (const [name, value] of Object.entries(response.headers ?? {})) headers[name.toLowerCase()] = value;
+	return { status: response.status, json, headers };
 };
 
 // The states of "Status and errors", as the member reads them.
@@ -109,6 +111,11 @@ export default class ScnSync extends Plugin {
 	private statusEl!: HTMLElement;
 	private ribbonEl!: HTMLElement;
 	private vaultProblemShown = false;
+	// Read from the listing, never the socket: a websocket cannot see the
+	// status of a refused connection. `gone` stops every retry until the
+	// plugin is updated, which reloads it.
+	gone = false;
+	sunset: Date | null = null;
 	locations!: NoteLocations;
 
 	async onload() {
@@ -439,14 +446,24 @@ export default class ScnSync extends Plugin {
 
 	private async refreshOnce() {
 		const { mounts } = this;
-		if (!mounts || !this.signedIn()) return;
+		if (!mounts || !this.signedIn() || this.gone) return;
 		let listing: Listing;
 		try {
 			listing = await this.vaults();
-		} catch {
+		} catch (e) {
+			// Offline or refused, what is mounted stays mounted. Gone is the
+			// one answer that ends retrying.
+			if (e instanceof Gone) {
+				this.gone = true;
+				this.connection?.stop();
+				new Notice(`SCN Sync: ${e.message}`, 0);
+				this.showStatus();
+				this.onChange?.();
+			}
 			return;
 		}
 		if (this.mounts !== mounts) return;
+		this.noteSunset(listing.sunset);
 		const vaults: MountVault[] = listing.workspaces.map(({ rootDocId, url, path, groupId }) => ({
 			rootDocId,
 			url,
@@ -473,6 +490,19 @@ export default class ScnSync extends Plugin {
 		await this.makeFolders(listing.rootFolders);
 		await this.applyNewNotesOnce();
 		await this.writeWelcome();
+	}
+
+	// Shown once a session for each date the relay names.
+	private noteSunset(sunset: Date | null) {
+		const was = this.sunset;
+		this.sunset = sunset;
+		if (sunset?.getTime() === was?.getTime()) return;
+		if (sunset) new Notice(`SCN Sync: ${this.sunsetLine()}`, 0);
+		this.onChange?.();
+	}
+
+	sunsetLine(): string {
+		return this.sunset ? `Update SCN Sync before ${this.sunset.toLocaleDateString(undefined, { dateStyle: "long" })}.` : "";
 	}
 
 	// M12. Once per plugin version on this device, after the M8 move so it
@@ -610,6 +640,7 @@ export default class ScnSync extends Plugin {
 		const { settings, mounts, connectionState } = this;
 		if (!settings.connected) return this.signedIn() ? "Not connected" : "Not set up";
 		if (!this.signedIn() || connectionState === "signed out") return "Signed out";
+		if (this.gone) return "Attention";
 		if (mounts && (mounts.guarding() > 0 || mounts.notSynced().length > 0 || mounts.outside().length > 0)) return "Attention";
 		if (connectionState === "offline") return "Offline";
 		if (!mounts || mounts.working || mounts.unsent().length > 0 || connectionState !== "online") return "Syncing";
@@ -619,6 +650,7 @@ export default class ScnSync extends Plugin {
 	statusText(): string {
 		const state = this.state();
 		const { mounts } = this;
+		if (state === "Attention" && this.gone) return `${state}: update SCN Sync`;
 		if (state === "Attention" && mounts) {
 			const guarding = mounts.guarding();
 			if (guarding > 0) return `${state}: ${guarding} notes missing here`;

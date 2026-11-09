@@ -20,16 +20,21 @@ export class SetupModal extends Modal {
 		plugin.setupModal = this;
 		this.modalEl.addClass("scn-sync-setup");
 		this.setTitle("Set up SCN Sync");
-		contentEl.createEl("p", {
-			text: "SCN Sync keeps the notes in this vault in step with any other devices or LLMs.",
-		});
-		contentEl.createEl("p", { text: "NOTE: notes are not encrypted at rest." });
-
-		contentEl.createEl("p", {
-			text: "Your Private workspace is the Private folder, and each workspace you share appears in a Workspaces folder. Notes outside those folders stay on this device.",
-		});
+		// Below the address field, not above it: on a phone the keyboard
+		// covers the lower half of the modal, and a field further down
+		// scrolled out of view while it was typed in.
+		const about = () => {
+			contentEl.createEl("p", {
+				text: "SCN Sync keeps the notes in this vault in step with any other devices or LLMs.",
+			});
+			contentEl.createEl("p", { text: "NOTE: notes are not encrypted at rest." });
+			contentEl.createEl("p", {
+				text: "Your Private workspace is the Private folder, and each workspace you share appears in a Workspaces folder. Notes outside those folders stay on this device.",
+			});
+		};
 
 		if (plugin.signedIn()) {
+			about();
 			const { connected } = plugin.settings;
 			new Setting(contentEl)
 				.setName("Signed in")
@@ -86,6 +91,7 @@ export class SetupModal extends Modal {
 					}
 				});
 		});
+		about();
 	}
 
 	onClose() {

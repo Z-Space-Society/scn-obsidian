@@ -1,13 +1,14 @@
 # SCN Sync
 
-Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits, new notes, renames, moves and deletions across desktop and iPhone while merging concurrent changes. Sign in with an SCN membership via Corliss; notes are stored as Automerge documents on the relay and are not encrypted at rest.
+Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits, new notes, renames, moves and deletions across desktop and iPhone while merging concurrent changes. Sign in with an SCN membership via Corliss; notes are stored as Automerge documents on SCN Notes and are not encrypted at rest.
 
 ## What it needs
 
 - An SCN membership. Signing in goes through Corliss, and access stops when
   the membership does.
-- The sync URL shown on Corliss's Notes page. Your private vault is there
-  from the start, and each workspace you are in has its own.
+- The SCN Notes address shown on Corliss's Notes page, `https://notes.<domain>`.
+  Your Private workspace is there from the start, and each workspace you
+  share has its own.
 
 ## Set up
 
@@ -15,17 +16,17 @@ Sync your Obsidian vault with the Shared Computer Network (SCN) to mirror edits,
    "SCN Sync", then Install and Enable. Or open its listing,
    https://community.obsidian.md/plugins/scn-sync, and choose Add to
    Obsidian.
-2. In the setup window, paste the sync URL from the Notes page of your SCN
-   site and tap Sign in, then Open SCN sign-in.
+2. In the setup window, paste the SCN Notes address from the Notes page
+   of your SCN site and tap Sign in, then Open SCN sign-in.
 3. Sign in at SCN, and return to Obsidian.
 
 ## Where your notes go
 
-Every vault you can open syncs into this one Obsidian vault, each in its own
+Every workspace you can open syncs into this one Obsidian vault, each in its own
 folder:
 
-- `Private/` for your private vault. Only you can read these notes.
-- `Workspaces/<name>/` for each workspace you are in. Everyone in the
+- `Private/` for your Private workspace. Only you can read these notes.
+- `Workspaces/<name>/` for each workspace you share. Everyone in the
   workspace reads and edits these notes. `Workspaces/` is there even before
   you join one.
 
@@ -37,22 +38,27 @@ them at `Private/` once, and says so; change it back under Obsidian's Files
 and links settings. SCN Sync also replaces Obsidian's `Welcome.md` with its
 own, which stays on this device. Joining a workspace adds
 its folder; leaving one stops it syncing and keeps its files. Moving a note
-from one vault's folder into another's asks first, and makes it a new note
-there. Vault folders are named and removed in Corliss, so renaming or deleting
+from one workspace's folder into another's asks first, and makes it a new
+note there. Workspace folders are named and removed in Corliss, so renaming or deleting
 one here is undone.
 
-Updating from 1.0 moves the notes of the vault you had connected into
-`Private/`. Since 1.2 each member has one private vault, at `Private/` itself:
-a vault synced at `Private/<name>/` moves up into `Private/` once the relay
-lists it there, with nothing downloaded or uploaded again.
+Updating from 1.0 moves the notes you had connected into
+`Private/`. Since 1.2 each member has one Private workspace, at `Private/`
+itself: one synced at `Private/<name>/` moves up into `Private/` once SCN
+Notes lists it there, with nothing downloaded or uploaded again.
+
+Updating to 1.3 moves the saved address from `sync.<domain>` to
+`notes.<domain>`, and asks you to sign in once more: a sign-in is for one
+address. A version of SCN Sync that SCN Notes is retiring says so, with the
+date to update by.
 
 ## Network use
 
 SCN Sync contacts two services and nothing else:
 
-- **The relay** at the sync URL: its sign-in metadata and vault list over
+- **SCN Notes** at its address: its sign-in metadata and workspace list over
   HTTPS, and the sync itself over a WebSocket to the same host.
-- **Corliss**, the sign-in server the relay names: the browser sign-in, and
+- **Corliss**, the sign-in server SCN Notes names: the browser sign-in, and
   token requests and renewals.
 
 It sends no telemetry, and does not install or update itself or its
@@ -60,7 +66,7 @@ dependencies.
 
 ## Privacy
 
-Notes are stored on the relay as Automerge documents. They are not
+Notes are stored on SCN Notes as Automerge documents. They are not
 encrypted at rest.
 
 ## Development

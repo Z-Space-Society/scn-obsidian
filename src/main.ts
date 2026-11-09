@@ -541,7 +541,7 @@ export default class ScnSync extends Plugin {
 	// such as Obsidian's `Untitled.md` taking the name the member types.
 	private offerMove(offer: Offer, into: string | null) {
 		const folders = this.settings.folders;
-		const which = folders.length > 0 ? `${listed(folders)} folders` : "your SCN vaults' folders";
+		const which = folders.length > 0 ? `${listed(folders)} folders` : "your SCN workspaces' folders";
 		const fragment = createFragment((f) => {
 			f.createDiv({ text: `SCN Sync: Only ${which} are synced.` });
 			if (!into) return;
@@ -563,7 +563,7 @@ export default class ScnSync extends Plugin {
 		if (!mounts) return;
 		const missed: string[] = [];
 		for (const path of paths) if ((await mounts.moveIntoPrivate(path)) === null) missed.push(path);
-		if (missed.length > 0) new Notice(`SCN Sync: could not move ${missed.join(", ")}. Move it into a vault's folder by hand.`, NOTICE_MS);
+		if (missed.length > 0) new Notice(`SCN Sync: could not move ${missed.join(", ")}. Move it into a workspace's folder by hand.`, NOTICE_MS);
 		this.showStatus();
 		this.onChange?.();
 	}
@@ -676,7 +676,7 @@ export default class ScnSync extends Plugin {
 		// N5. Only this needs the member to act; the guard asks in its modal.
 		const problem = this.mounts?.vaultProblem() ?? false;
 		if (problem && !this.vaultProblemShown) {
-			new Notice("SCN Sync: several notes are not available from SCN. Check the vault on Corliss's Notes page.", 0);
+			new Notice("SCN Sync: several notes are not available from SCN. Check the workspace on Corliss's Notes page.", 0);
 		}
 		this.vaultProblemShown = problem;
 	}

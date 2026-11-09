@@ -20,11 +20,11 @@ export function welcomeNote(privateFolder: string, folders: string[]): string {
 		"",
 		"SCN Sync keeps your notes in step with SCN, the Shared Computer Network: the same on every device you sign in on, and open to the AI tools you connect to your notes.",
 		"",
-		`- **${priv}** is your private vault. Only you can open it, from your own devices and the AI tools you connect.`,
+		`- **${priv}** is your Private workspace. Only you can open it, from your own devices and the AI tools you connect.`,
 	];
 	if (workspaces) {
 		lines.push(
-			`- **${workspaces}** holds a folder for each workspace you are in. Everyone in a workspace can read and change its notes. When you are added to a workspace, its folder appears here.`,
+			`- **${workspaces}** holds a folder for each workspace you share. Everyone in a workspace can read and change its notes. When you are added to a workspace, its folder appears here.`,
 		);
 	}
 	lines.push(
@@ -43,7 +43,7 @@ export function welcomeNote(privateFolder: string, folders: string[]): string {
 		"- **Attention**: something needs a look, such as a note outside the synced folders.",
 		"- **Signed out**: sign in again under Settings, SCN Sync.",
 		"",
-		"The SCN Sync icon in the left ribbon shows the details, and what to do about anything needing attention. Settings, SCN Sync lists each vault and its folder, and where new notes go.",
+		"The SCN Sync icon in the left ribbon shows the details, and what to do about anything needing attention. Settings, SCN Sync lists each workspace and its folder, and where new notes go.",
 		"",
 		"## Commands",
 		"",

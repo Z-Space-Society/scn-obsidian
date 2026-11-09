@@ -22,6 +22,8 @@ export interface HttpResponse {
 	status: number;
 	// Null when the body is not JSON.
 	json: unknown;
+	// Names in lower case. Absent where no caller reads them.
+	headers?: Record<string, string>;
 }
 
 // Throws only when no response arrived at all.

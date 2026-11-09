@@ -20,12 +20,27 @@ export interface Workspace {
 // The relay refused the access token.
 export class Unauthorized extends Error {}
 
+// 410 Gone: SCN Notes no longer serves the API this version of the plugin
+// speaks. Only an update helps, so nothing retries.
+export class Gone extends Error {}
+
 // V1. What `GET /v1/workspaces` answers.
 export interface Listing {
 	workspaces: Workspace[];
 	// The folders workspaces are grouped under, "Private" and "Workspaces",
 	// named even when the member has no workspace in one.
 	rootFolders: string[];
+	// From a `Sunset` header (RFC 8594): when SCN Notes stops serving the API
+	// this version speaks. Null while it is not retiring.
+	sunset: Date | null;
+}
+
+// An HTTP date, or null for none or one that does not parse.
+export function sunsetOf(headers: Record<string, string> | undefined): Date | null {
+	const value = headers?.["sunset"];
+	if (!value) return null;
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date;
 }
 
 // V1. `GET /v1/workspaces` answers `{"workspaces": [...], "root_folders":
@@ -37,6 +52,7 @@ export async function listWorkspaces(http: Http, syncUrl: string, accessToken: s
 		headers: { Authorization: `Bearer ${accessToken}` },
 	});
 	if (response.status === 401) throw new Unauthorized("SCN Notes refused this sign-in.");
+	if (response.status === 410) throw new Gone("This version of SCN Sync no longer works with SCN Notes; update it.");
 	if (response.status !== 200) throw new Error(`SCN Notes answered ${response.status} when listing workspaces.`);
 	const json = response.json as { workspaces?: unknown; root_folders?: unknown } | null;
 	const list = json?.workspaces;
@@ -62,5 +78,5 @@ export async function listWorkspaces(http: Http, syncUrl: string, accessToken: s
 			},
 		];
 	});
-	return { workspaces, rootFolders };
+	return { workspaces, rootFolders, sunset: sunsetOf(response.headers) };
 }

@@ -331,7 +331,7 @@ export class Mounts {
 		const record = this.records[id];
 		await this.unmount(id);
 		await this.options.deleteStore(record.store);
-		this.options.notify(`${record.folder} is downloaded again. A vault is removed in Corliss, not by deleting its folder.`);
+		this.options.notify(`${record.folder} is downloaded again. A workspace is removed in Corliss, not by deleting its folder.`);
 		if (!this.stopped) this.mount(id);
 	}
 
@@ -456,7 +456,7 @@ export class Mounts {
 			let aside = `${to} (outside SCN)`;
 			for (let n = 2; files.hasFolder(aside); n++) aside = `${to} (outside SCN ${n})`;
 			await rename(to, aside);
-			this.options.notify(`Files in ${to} that were outside your SCN vaults are now in ${aside}.`);
+			this.options.notify(`Files in ${to} that were outside your SCN workspaces are now in ${aside}.`);
 		}
 		await rename(staging, to);
 	}
@@ -497,7 +497,7 @@ export class Mounts {
 			// M7. A group folder or a vault's folder: put back.
 			if (this.guarded(from).length > 0) {
 				await this.putBack(from, to);
-				this.options.notify("SCN vault folders are named in Corliss. Moved back.");
+				this.options.notify("SCN workspace folders are named in Corliss. Moved back.");
 				continue;
 			}
 
@@ -512,7 +512,7 @@ export class Mounts {
 				this.options.notify(
 					group
 						? `${group} holds workspace folders only. Put notes inside one of them. Moved back.`
-						: `${to} is outside your SCN vaults. Moved back.`,
+						: `${to} is outside your SCN workspaces. Moved back.`,
 				);
 			} else if (destination) {
 				// Brought into a vault from outside: new notes there, and

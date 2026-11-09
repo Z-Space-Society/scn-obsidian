@@ -29,7 +29,7 @@ export function statusRows(plugin: ScnSync): StatusRow[] {
 		const page = plugin.notesPage();
 		rows.push({
 			name: "Several notes are not available from SCN",
-			desc: "Their files stay here and can be edited. Check the vault on Corliss's Notes page.",
+			desc: "Their files stay here and can be edited. Check the workspace on Corliss's Notes page.",
 			button: page ? { text: "Open Notes page", onClick: () => window.open(page) } : undefined,
 		});
 	}
@@ -39,7 +39,7 @@ export function statusRows(plugin: ScnSync): StatusRow[] {
 	for (const path of mounts.outside()) {
 		rows.push({
 			name: path,
-			desc: "In no SCN vault. Stays on this device.",
+			desc: "In no SCN workspace. Stays on this device.",
 			button: into ? { text: `Move to ${into}`, onClick: () => plugin.moveIntoPrivate([path]) } : undefined,
 		});
 	}

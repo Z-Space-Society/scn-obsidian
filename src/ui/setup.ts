@@ -26,7 +26,7 @@ export class SetupModal extends Modal {
 		contentEl.createEl("p", { text: "NOTE: notes are not encrypted at rest." });
 
 		contentEl.createEl("p", {
-			text: "Your private vault is the Private folder, and each workspace you are in appears in a Workspaces folder. Notes outside those folders stay on this device.",
+			text: "Your Private workspace is the Private folder, and each workspace you share appears in a Workspaces folder. Notes outside those folders stay on this device.",
 		});
 
 		if (plugin.signedIn()) {
@@ -52,7 +52,7 @@ export class SetupModal extends Modal {
 		let button!: ButtonComponent;
 		new Setting(contentEl)
 			.setClass("scn-sync-url")
-			.setName("Sync URL")
+			.setName("SCN Notes address")
 			.setDesc("Shown on the Notes page of your SCN site.")
 			.addText((t) =>
 				t
@@ -196,7 +196,7 @@ export class ConnectModal extends Modal {
 				text: `${count(plan.localOnly.length, "note here is", "notes here are")} not on SCN and ${plan.localOnly.length === 1 ? "is" : "are"} uploaded.`,
 			});
 		}
-		if (list.childElementCount === 0) list.createEl("li", { text: "This vault is empty on SCN and here." });
+		if (list.childElementCount === 0) list.createEl("li", { text: "This workspace is empty on SCN and here." });
 		contentEl.createEl("p", { text: "Nothing here is deleted or overwritten without a copy." });
 		new Setting(contentEl)
 			.addButton((b) => b.setButtonText("Cancel").onClick(() => this.finish(false)))
@@ -250,7 +250,7 @@ export class DeleteGuardModal extends Modal {
 			text: `They were in step with ${this.vaultName} on SCN when SCN Sync last ran, and nothing has been sent about them yet.`,
 		});
 		contentEl.createEl("p", {
-			text: "If this vault's folder moved, or is not all there yet, download them again. If you deleted them, delete them on SCN too.",
+			text: "If this workspace's folder moved, or is not all there yet, download them again. If you deleted them, delete them on SCN too.",
 		});
 		new Setting(contentEl)
 			.addButton((b) =>

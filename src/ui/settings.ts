@@ -15,9 +15,9 @@ function newNotesRow(plugin: ScnSync): SettingDefinition {
 	const into = plugin.privateFolder();
 	const syncing = plugin.newNotesSync();
 	const { folder } = plugin.locations.newNotes();
-	const desc = syncing ? `They go in ${folder}, so they sync.` : "They go outside your SCN vaults and stay on this device.";
+	const desc = syncing ? `They go in ${folder}, so they sync.` : "They go outside your SCN workspaces and stay on this device.";
 	return buttonRow("New notes", desc, (b) => {
-		b.setButtonText(into ? `Put in ${into}` : "Put in your private vault")
+		b.setButtonText(into ? `Put in ${into}` : "Put in your Private workspace")
 			.setDisabled(syncing || !into)
 			// Saving redraws this tab.
 			.onClick(() => void plugin.putNewNotesInPrivate());
@@ -49,7 +49,7 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 						? buttonRow("Signed in", `${settings.did} at ${settings.syncUrl}`, (b) => {
 								b.setButtonText("Sign out").onClick(() => plugin.signOut());
 							})
-						: buttonRow("Signed out", settings.syncUrl ? `Sync URL ${settings.syncUrl}` : "Not set up yet.", (b) => {
+						: buttonRow("Signed out", settings.syncUrl ? `SCN Notes at ${settings.syncUrl}` : "Not set up yet.", (b) => {
 								b.setButtonText("Sign in")
 									.setCta()
 									.onClick(() => new SetupModal(this.app, plugin).open());
@@ -58,7 +58,7 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 			},
 			{
 				type: "group",
-				heading: "Vaults",
+				heading: "Workspaces",
 				items: settings.connected
 					? [
 							buttonRow("Syncing with SCN", "Disconnecting keeps every file.", (b) => {
@@ -71,7 +71,7 @@ export class ScnSyncSettingTab extends PluginSettingTab {
 								.map((record) => ({ name: record.path, desc: `In ${record.folder}`, searchable: false })),
 						]
 					: [
-							buttonRow("Not syncing", signedIn ? "Sync every SCN vault you can open." : "Sign in first.", (b) => {
+							buttonRow("Not syncing", signedIn ? "Sync every SCN workspace you can open." : "Sign in first.", (b) => {
 								b.setButtonText("Connect")
 									.setDisabled(!signedIn)
 									.onClick(() => void plugin.connect());

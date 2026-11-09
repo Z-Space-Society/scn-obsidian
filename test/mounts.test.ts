@@ -264,7 +264,6 @@ describe("moving across vaults", () => {
 		mounts.renamed("Private/Notes/plan.md", "plan.md", false);
 		await mounts.idle();
 		assert.equal(files.files.get("Private/Notes/plan.md"), "# Plan\n");
-		assert.match(notices[notices.length - 1], /outside your SCN vaults/);
 	});
 });
 

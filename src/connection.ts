@@ -25,7 +25,7 @@ class RelayAdapter extends WebSocketClientAdapter {
 }
 
 export function socketUrl(syncUrl: string, token: string): string {
-	return `${syncUrl.replace(/^https:/, "wss:")}/?access_token=${encodeURIComponent(token)}`;
+	return `${syncUrl.replace(/^https:/, "wss:")}/v1/sync?access_token=${encodeURIComponent(token)}`;
 }
 
 export interface ConnectionOptions {

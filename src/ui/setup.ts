@@ -56,7 +56,7 @@ export class SetupModal extends Modal {
 			.setDesc("Shown on the Notes page of your SCN site.")
 			.addText((t) =>
 				t
-					.setPlaceholder("https://sync.example.org")
+					.setPlaceholder("https://notes.example.org")
 					.setValue(this.syncUrl)
 					.onChange((v) => {
 						this.syncUrl = v;

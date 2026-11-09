@@ -13,6 +13,7 @@ import {
 	exchangeCode,
 	matchCallback,
 	normaliseSyncUrl,
+	notesAddress,
 	subjectOf,
 	type Http,
 	type HttpRequest,
@@ -21,7 +22,7 @@ import {
 } from "../src/auth.ts";
 
 const ISSUER = "https://scn.example";
-const SYNC = "https://sync.scn.example";
+const SYNC = "https://notes.scn.example";
 const TOKEN_ENDPOINT = `${ISSUER}/oidc/token`;
 
 function jwt(payload: object): string {
@@ -54,11 +55,28 @@ function pendingAt(startedAt: number): PendingSignIn {
 	return { state: "s", verifier: "v", syncUrl: SYNC, issuer: ISSUER, tokenEndpoint: TOKEN_ENDPOINT, startedAt };
 }
 
-describe("the sync URL", () => {
+describe("the SCN Notes address", () => {
 	it("is stored as https with no path", () => {
-		assert.equal(normaliseSyncUrl(" https://sync.scn.example/ "), SYNC);
+		assert.equal(normaliseSyncUrl(" https://notes.scn.example/ "), SYNC);
+		assert.equal(normaliseSyncUrl("wss://notes.scn.example/"), SYNC);
+		assert.equal(normaliseSyncUrl("https://notes.scn.example:8443"), "https://notes.scn.example:8443");
+	});
+
+	it("moves the old sync host to the notes host, port and all", () => {
+		assert.equal(notesAddress("https://sync.scn.example"), SYNC);
+		assert.equal(notesAddress("https://sync.scn.example:8443"), "https://notes.scn.example:8443");
 		assert.equal(normaliseSyncUrl("wss://sync.scn.example/"), SYNC);
-		assert.equal(normaliseSyncUrl("https://sync.scn.example:8443"), "https://sync.scn.example:8443");
+	});
+
+	it("leaves any other address alone", () => {
+		assert.equal(notesAddress(SYNC), SYNC);
+		assert.equal(notesAddress("https://notes.sync.example"), "https://notes.sync.example");
+		assert.equal(notesAddress(""), "");
+	});
+
+	it("refuses the MCP address", () => {
+		assert.throws(() => normaliseSyncUrl("https://notes.scn.example/mcp"), SignInError);
+		assert.throws(() => normaliseSyncUrl("https://notes.scn.example/mcp/"), SignInError);
 	});
 
 	it("refuses anything that is not https or wss", () => {

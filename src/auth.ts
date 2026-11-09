@@ -69,19 +69,31 @@ export function clientIdFor(issuer: string): string {
 	return `${issuer}/clients/scn-obsidian.json`;
 }
 
-// The sync URL in the one form it is stored in, `https://<sync host>`. A
-// pasted `wss://` address is the same host.
+// From 1.3.0 SCN Notes is at `notes.<domain>`, and `sync.<domain>` only
+// serves plugins up to 1.2.x until it retires. An address on the old host
+// becomes the new one, port and all; any other address is left as it is.
+export function notesAddress(syncUrl: string): string {
+	return syncUrl.replace(/^https:\/\/sync\./, "https://notes.");
+}
+
+// The SCN Notes address in the one form it is stored in, `https://<host>`.
+// A pasted `wss://` address is the same host, and the old `sync.` host is
+// the new `notes.` one.
 export function normaliseSyncUrl(input: string): string {
 	let url: URL;
 	try {
 		url = new URL(input.trim());
 	} catch {
-		throw new SignInError("That is not a web address. Copy the sync URL from the Notes page.");
+		throw new SignInError("That is not a web address. Copy the SCN Notes address from the Notes page.");
 	}
 	if (url.protocol !== "https:" && url.protocol !== "wss:") {
-		throw new SignInError("The sync URL starts with https://. Copy it from the Notes page.");
+		throw new SignInError("The SCN Notes address starts with https://. Copy it from the Notes page.");
 	}
-	return `https://${url.host}`;
+	// The same host, but the token for it is Claude's, not this plugin's.
+	if (/\/mcp\/?$/.test(url.pathname)) {
+		throw new SignInError("That is the address for Claude. For Obsidian, copy the SCN Notes address from the Notes page.");
+	}
+	return notesAddress(`https://${url.host}`);
 }
 
 function field(value: unknown, key: string): unknown {
